@@ -1,13 +1,15 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:geotrack_frontend/app.dart';
 import 'package:geotrack_frontend/services/auto_collect_service.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:flutter_background_service_android/flutter_background_service_android.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Charger les variables d'environnement
@@ -29,11 +31,7 @@ Future<void> initializeBackgroundService() async {
     androidConfiguration: AndroidConfiguration(
       onStart: onStart,
       autoStart: true,
-      isForegroundMode: true,
-      notificationChannelId: 'geotrack_channel',
-      initialNotificationTitle: 'GeoTrack Service',
-      initialNotificationContent: 'Collecte GPS en cours',
-      foregroundServiceNotificationId: 888,
+      isForegroundMode: false, // Désactivé
     ),
     iosConfiguration: IosConfiguration(
       autoStart: true,
@@ -75,17 +73,46 @@ void onStart(ServiceInstance service) {
 }
 
 void startPeriodicTasks(ServiceInstance service) async {
-  Timer.periodic(Duration(minutes: 5), (timer) async {
+  // Timer pour la collecte GPS (toutes les 5 minutes)
+  Timer.periodic(const Duration(minutes: 5), (timer) async {
     if (service is AndroidServiceInstance) {
       if (await service.isForegroundService()) {
         await AutoCollectService.collectGpsDataBackground();
+
+        // Mettre à jour la notification
+        if (service is AndroidServiceInstance) {
+          service.setForegroundNotificationInfo(
+            title: "GeoTrack Service",
+            content:
+                "Dernière collecte: ${DateTime.now().toString().substring(11, 16)}",
+          );
+        }
       }
     } else {
       await AutoCollectService.collectGpsDataBackground();
     }
   });
 
-  Timer.periodic(Duration(minutes: 10), (timer) async {
+  // Timer pour la synchronisation (toutes les 10 minutes)
+  Timer.periodic(const Duration(minutes: 10), (timer) async {
     await AutoCollectService.syncGpsDataBackground();
+
+    // Mettre à jour la notification après synchronisation
+    if (service is AndroidServiceInstance &&
+        await service.isForegroundService()) {
+      service.setForegroundNotificationInfo(
+        title: "GeoTrack Service",
+        content:
+            "Dernière sync: ${DateTime.now().toString().substring(11, 16)}",
+      );
+    }
   });
+
+  // Initialiser la notification
+  if (service is AndroidServiceInstance) {
+    service.setForegroundNotificationInfo(
+      title: "GeoTrack Service",
+      content: "Service de collecte GPS démarré",
+    );
+  }
 }

@@ -17,3 +17,10 @@ Flutter application for GPS tracking with offline capabilities.
 3. Install dependencies:
    ```bash
    flutter pub get
+4. Run:
+  ```bash
+   Flutter run
+3. Pour le buid apk l'emplacement se trouve à:
+   ```bash
+   Built build\app\outputs\flutter-apk\app-release.apk
+
