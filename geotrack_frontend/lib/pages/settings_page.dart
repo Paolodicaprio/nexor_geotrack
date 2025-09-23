@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:geotrack_frontend/models/config_model.dart';
 import 'package:geotrack_frontend/services/api_service.dart';
+import 'package:geotrack_frontend/services/storage_service.dart';
 import 'package:provider/provider.dart';
 import 'package:geotrack_frontend/services/auth_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -20,21 +21,25 @@ class _SettingsPageState extends State<SettingsPage> {
   final TextEditingController _newPinController = TextEditingController();
   final TextEditingController _confirmPinController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _apiUrlController = TextEditingController();
 
   final _settingsFormKey = GlobalKey<FormState>();
   final _pinFormKey = GlobalKey<FormState>();
+  final _apiFormKey = GlobalKey<FormState>();
 
   bool _obscureOldPin = true;
   bool _obscureNewPin = true;
   bool _obscureConfirmPin = true;
   bool _isChangingPin = false;
   bool _showPinSection = false;
+  bool _showApiSection = false;
 
   @override
   void initState() {
     super.initState();
     _loadSettings();
     _loadUserEmail();
+    _loadApiUrl();
   }
 
   Future<void> _loadSettings() async {
@@ -44,6 +49,13 @@ class _SettingsPageState extends State<SettingsPage> {
           (prefs.getInt('collect_interval') ?? 5).toString();
       _syncIntervalController.text =
           (prefs.getInt('sync_interval') ?? 10).toString();
+    });
+  }
+
+  Future<void> _loadApiUrl() async {
+    final apiUrl = await ApiService.getApiUrl();
+    setState(() {
+      _apiUrlController.text = apiUrl;
     });
   }
 
@@ -166,6 +178,36 @@ class _SettingsPageState extends State<SettingsPage> {
     if (!mounted) return;
     Navigator.pushReplacementNamed(context, '/login');
   }
+
+  Future<void> _changeApiUrl() async {
+    if (_apiFormKey.currentState!.validate()) {
+      await StorageService().saveCustomUrl(_apiUrlController.text);
+      setState(() {
+        _showApiSection=false;
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Url modifié avec succès'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  }
+  Future<void> _clearApiUrl() async {
+      await StorageService().clearCustomUrl();
+      setState(() {
+        _showApiSection=false;
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Url reinitialisé avec succès'),
+          backgroundColor: Colors.green,
+        ),
+      );
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -470,7 +512,113 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
             const SizedBox(height: 24),
+            Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.compare_arrows_rounded, color: Colors.green),
+                        const SizedBox(width: 12),
+                        const Text(
+                          'Configuration de L\'API',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          icon: Icon(
+                            _showApiSection
+                                ? Icons.expand_less
+                                : Icons.expand_more,
+                            color: Colors.green,
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _showApiSection = !_showApiSection;
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+
+                    if (_showApiSection) ...[
+                      const SizedBox(height: 16),
+                      Form(
+                        key: _apiFormKey,
+                        child: Column(
+                          children: [
+                            TextFormField(
+                              controller: _apiUrlController,
+                              decoration: const InputDecoration(
+                                labelText: 'Url de l\'API',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.link),
+                              ),
+                              keyboardType: TextInputType.text,
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return 'Veuillez entrer l\'URL de l\'API';
+                                }
+                                // Vérifier si l'URL est valide
+                                final uri = Uri.tryParse(value.trim());
+                                if (uri == null || (!uri.hasScheme || !uri.hasAuthority)) {
+                                  return 'URL invalide (doit contenir http:// ou https://)';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 16),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                icon: const Icon(Icons.update),
+                                label: Text('Modifier l\'url'),
+                                onPressed: _changeApiUrl,
+                                style: ElevatedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 16,
+                                  ),
+                                  backgroundColor: Colors.green,
+                                  foregroundColor: Colors.white,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                icon: const Icon(Icons.clear),
+                                label: Text('Revenir a l \'url par défaut '),
+                                onPressed: _clearApiUrl,
+                                style: ElevatedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 16,
+                                  ),
+                                  backgroundColor: Colors.orange,
+                                  foregroundColor: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
             const SizedBox(height: 24),
+            const SizedBox(height: 24),
+
 
             // Bouton de déconnexion
             SizedBox(

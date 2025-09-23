@@ -8,6 +8,7 @@ class StorageService {
   final String _tokenKey = 'auth_token';
   final String _pendingDataKey = 'pending_gps_data';
   final String _syncedDataKey = 'synced_gps_data';
+  final String _customApiUrlKey = 'custom_api_url';
 
   Future<void> saveToken(String token) async {
     await _secureStorage.write(key: _tokenKey, value: token);
@@ -120,4 +121,22 @@ class StorageService {
       return [];
     }
   }
+  /// Sauvegarde l'URL entrée par l'utilisateur
+   Future<void> saveCustomUrl(String url) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_customApiUrlKey, url);
+  }
+
+  /// Récupère l'URL personnalisée si elle existe
+   Future<String?> getCustomUrl() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_customApiUrlKey);
+  }
+
+  /// Supprime l'URL personnalisée (revenir aux valeurs par défaut)
+   Future<void> clearCustomUrl() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_customApiUrlKey);
+  }
+
 }

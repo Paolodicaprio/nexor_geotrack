@@ -7,9 +7,16 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'storage_service.dart';
 
 class ApiService {
-  Future<String> _getApiUrl() async {
-    return dotenv.get('API_BASE_URL', fallback: Constants.apiBaseUrl);
+  static Future<String> getApiUrl() async {
+    // Vérifier l'URL personnalisée
+    final customUrl = await StorageService().getCustomUrl();
+    if (customUrl != null && customUrl.isNotEmpty) {
+      return customUrl;
+    }else{
+      return dotenv.get('API_BASE_URL', fallback: Constants.apiBaseUrl);
+    }
   }
+
 
   Future<Map<String, String>> _getHeaders() async {
     final token = await StorageService().getToken();
@@ -21,7 +28,7 @@ class ApiService {
 
   Future<Config> getConfig() async {
     try {
-      final apiUrl = await _getApiUrl();
+      final apiUrl = await getApiUrl();
       final headers = await _getHeaders();
 
       final response = await http.get(
@@ -42,7 +49,7 @@ class ApiService {
 
   Future<GpsData> sendGpsData(GpsData data) async {
     try {
-      final apiUrl = await _getApiUrl();
+      final apiUrl = await getApiUrl();
       final headers = await _getHeaders();
 
       final body = {
@@ -73,7 +80,7 @@ class ApiService {
 
   Future<List<GpsData>> getGpsData({String? deviceId}) async {
     try {
-      final apiUrl = await _getApiUrl();
+      final apiUrl = await getApiUrl();
       final headers = await _getHeaders();
 
       final url =
@@ -96,7 +103,7 @@ class ApiService {
 
   Future<Config> updateConfig(Map<String, dynamic> updates) async {
     try {
-      final apiUrl = await _getApiUrl();
+      final apiUrl = await getApiUrl();
       final headers = await _getHeaders();
 
       print('🔄 PUT Request to: $apiUrl/config/');
@@ -128,7 +135,7 @@ class ApiService {
   // Méthode pour mettre à jour partiellement
   Future<Config> partialUpdateConfig(Map<String, dynamic> updates) async {
     try {
-      final apiUrl = await _getApiUrl();
+      final apiUrl = await getApiUrl();
       final headers = await _getHeaders();
 
       print('🔄 PATCH Request to: $apiUrl/config/');
