@@ -50,12 +50,11 @@ class AuthService with ChangeNotifier {
 
       final response = await http
           .post(
-            Uri.parse('$apiUrl/auth/login'),
+            uri,
             headers: {
               'Content-Type': 'application/json',
               'Accept': 'application/json',
             },
-            body: json.encode({'email': email, 'access_code': accessCode}),
           )
           .timeout(const Duration(seconds: 30));
 
