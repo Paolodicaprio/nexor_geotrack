@@ -1,27 +1,25 @@
 class Config {
+  final int id;
   final int collectionInterval;
   final int sendInterval;
-  final String deviceId;
+  final DateTime createdAt;
+  final DateTime updatedAt;
 
   Config({
+    required this.id,
     required this.collectionInterval,
     required this.sendInterval,
-    required this.deviceId,
+    required this.createdAt,
+    required this.updatedAt,
   });
 
   factory Config.fromJson(Map<String, dynamic> json) {
     return Config(
+      id: json['id'] ?? 0,
       collectionInterval: json['collection_interval'] ?? 300,
       sendInterval: json['send_interval'] ?? 600,
-      deviceId: json['device_id'] ?? 'mobile-device',
+      createdAt: DateTime.parse(json['created_at']),
+      updatedAt: DateTime.parse(json['updated_at']),
     );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'collection_interval': collectionInterval,
-      'send_interval': sendInterval,
-      'device_id': deviceId,
-    };
   }
 }

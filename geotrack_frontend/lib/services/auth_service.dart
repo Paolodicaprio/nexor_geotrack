@@ -49,12 +49,13 @@ class AuthService with ChangeNotifier {
       ).replace(queryParameters: {'email': email, 'access_code': accessCode});
 
       final response = await http
-          .get(
-            uri,
+          .post(
+            Uri.parse('$apiUrl/auth/login'),
             headers: {
               'Content-Type': 'application/json',
               'Accept': 'application/json',
             },
+            body: json.encode({'email': email, 'access_code': accessCode}),
           )
           .timeout(const Duration(seconds: 30));
 
