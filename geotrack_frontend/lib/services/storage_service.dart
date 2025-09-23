@@ -121,22 +121,46 @@ class StorageService {
       return [];
     }
   }
+
   /// Sauvegarde l'URL entrée par l'utilisateur
-   Future<void> saveCustomUrl(String url) async {
+  Future<void> saveCustomUrl(String url) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_customApiUrlKey, url);
   }
 
   /// Récupère l'URL personnalisée si elle existe
-   Future<String?> getCustomUrl() async {
+  Future<String?> getCustomUrl() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_customApiUrlKey);
   }
 
   /// Supprime l'URL personnalisée (revenir aux valeurs par défaut)
-   Future<void> clearCustomUrl() async {
+  Future<void> clearCustomUrl() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_customApiUrlKey);
   }
 
+  Future<void> saveUserEmail(String email) async {
+    await _secureStorage.write(key: 'user_email', value: email);
+  }
+
+  Future<String?> getUserEmail() async {
+    return await _secureStorage.read(key: 'user_email');
+  }
+
+  Future<void> deleteUserEmail() async {
+    await _secureStorage.delete(key: 'user_email');
+  }
+
+  Future<void> saveAccessCode(String accessCode) async {
+    await _secureStorage.write(key: 'access_code', value: accessCode);
+  }
+
+  Future<String?> getAccessCode() async {
+    return await _secureStorage.read(key: 'access_code');
+  }
+
+  Future<void> deleteAccessCode() async {
+    await _secureStorage.delete(key: 'access_code');
+  }
 }

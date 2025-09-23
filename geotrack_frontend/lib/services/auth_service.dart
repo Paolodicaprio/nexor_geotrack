@@ -1,4 +1,3 @@
-// auth_service.dart
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -21,8 +20,9 @@ class AuthService with ChangeNotifier {
   String? get token => _token;
   int get failedAttempts => _failedAttempts;
   DateTime? get blockUntil => _blockUntil;
+  String? get userEmail => _userEmail;
 
-  Future<LoginResponse> login(String pin) async {
+  Future<LoginResponse> login(String email, String accessCode) async {
     if (isBlocked()) {
       return LoginResponse(
         success: false,
@@ -32,7 +32,7 @@ class AuthService with ChangeNotifier {
     }
 
     try {
-      final apiUrl = dotenv.get('API_BASE_URL', fallback: Constants.apiBaseUrl);
+      final apiUrl = await _getApiUrl();
 
       // Test de connectivité
       final connectivityResult = await Connectivity().checkConnectivity();
@@ -43,14 +43,18 @@ class AuthService with ChangeNotifier {
         );
       }
 
+      // Utiliser les paramètres query comme spécifié dans l'API
+      final uri = Uri.parse(
+        '$apiUrl/auth/login',
+      ).replace(queryParameters: {'email': email, 'access_code': accessCode});
+
       final response = await http
-          .post(
-            Uri.parse('$apiUrl/auth/login'),
+          .get(
+            uri,
             headers: {
               'Content-Type': 'application/json',
               'Accept': 'application/json',
             },
-            body: json.encode({'pin': pin}),
           )
           .timeout(const Duration(seconds: 30));
 
@@ -60,15 +64,19 @@ class AuthService with ChangeNotifier {
         _isAuthenticated = true;
         _failedAttempts = 0;
         _blockUntil = null;
+        _userEmail = email;
 
         await StorageService().saveToken(_token!);
+        await StorageService().saveUserEmail(email);
         notifyListeners();
+
         return LoginResponse(success: true, token: _token);
       } else if (response.statusCode == 401) {
         _handleFailedAttempt();
         return LoginResponse(
           success: false,
-          error: 'PIN incorrect. Tentatives restantes: ${3 - _failedAttempts}',
+          error:
+              'Code d\'accès incorrect. Tentatives restantes: ${3 - _failedAttempts}',
         );
       } else {
         final errorData = json.decode(response.body);
@@ -85,7 +93,58 @@ class AuthService with ChangeNotifier {
     } on TimeoutException {
       return LoginResponse(success: false, error: 'Timeout de connexion');
     } catch (e) {
-      return LoginResponse(success: false, error: 'Erreur de connexion');
+      return LoginResponse(success: false, error: 'Erreur de connexion: $e');
+    }
+  }
+
+  // AJOUT: Méthode register dans la classe AuthService
+  Future<Map<String, dynamic>> register(String email) async {
+    try {
+      // Test avec une requête GET simple d'abord
+      print('🔍 Testing basic connectivity...');
+      final testResponse = await http.get(
+        Uri.parse('https://portal.inma.ucl.ac.be'),
+        headers: {'User-Agent': 'Flutter App'},
+      );
+      print('🌐 Basic connectivity test: ${testResponse.statusCode}');
+
+      // Maintenant la requête POST
+      final apiUrl = 'https://portal.inma.ucl.ac.be/geotrack/auth/register';
+      print('🔄 Register attempt - URL: $apiUrl');
+
+      final response = await http
+          .post(
+            Uri.parse(apiUrl),
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+              'User-Agent': 'Flutter App',
+            },
+            body: json.encode({'email': email}),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      print('📤 Response Status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return {
+          'success': true,
+          'message': 'Compte créé avec succès',
+          'access_code': data['access_code'],
+        };
+      } else {
+        return {
+          'success': false,
+          'message': 'Erreur HTTP ${response.statusCode}: ${response.body}',
+        };
+      }
+    } catch (e) {
+      print('❌ Detailed error: $e');
+      print('❌ Error type: ${e.runtimeType}');
+      print('❌ Stack trace: ${StackTrace.current}');
+
+      return {'success': false, 'message': 'Erreur détaillée: ${e.toString()}'};
     }
   }
 
@@ -116,13 +175,17 @@ class AuthService with ChangeNotifier {
     _blockUntil = null;
     _userEmail = null;
     await StorageService().deleteToken();
+    await StorageService().deleteUserEmail();
     notifyListeners();
   }
 
   Future<bool> checkAuth() async {
     final token = await StorageService().getToken();
-    if (token != null) {
+    final email = await StorageService().getUserEmail();
+
+    if (token != null && email != null) {
       _token = token;
+      _userEmail = email;
       _isAuthenticated = true;
       notifyListeners();
       return true;
@@ -130,89 +193,25 @@ class AuthService with ChangeNotifier {
     return false;
   }
 
-  Future<Map<String, dynamic>> changePin(
-    String email,
-    String oldPin,
-    String newPin,
-  ) async {
-    try {
-      final apiUrl = dotenv.get('API_BASE_URL', fallback: Constants.apiBaseUrl);
-
-      // Utiliser le token de l'instance au lieu du storage
-      if (_token == null) {
-        return {
-          'success': false,
-          'message': 'Non authentifié. Veuillez vous reconnecter',
-        };
-      }
-
-      final response = await http.post(
-        Uri.parse('$apiUrl/auth/change-pin'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $_token', // Utiliser _token directement
-        },
-        body: json.encode({
-          'email': email,
-          'old_pin': oldPin,
-          'new_pin': newPin,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        return {'success': true, 'message': 'PIN modifié avec succès'};
-      } else if (response.statusCode == 401) {
-        // Token expiré ou invalide
-        await logout();
-        return {
-          'success': false,
-          'message': 'Session expirée. Veuillez vous reconnecter',
-        };
-      } else {
-        final errorData = json.decode(response.body);
-        return {
-          'success': false,
-          'message': errorData['detail'] ?? 'Erreur lors du changement de PIN',
-        };
-      }
-    } catch (e) {
-      return {'success': false, 'message': 'Erreur de connexion: $e'};
-    }
-  }
-
-  String? getEmailFromToken() {
-    if (_token == null) return null;
-    try {
-      final parts = _token!.split('.');
-      if (parts.length != 3) return null;
-
-      final payload = parts[1];
-      // Padding pour base64Url
-      final padded = payload.padRight((payload.length + 3) & ~3, '=');
-      final normalized = base64Url.normalize(padded);
-      final decoded = utf8.decode(base64Url.decode(normalized));
-      final payloadMap = json.decode(decoded);
-
-      return payloadMap['sub']; // L'email est dans le claim "sub"
-    } catch (e) {
-      print('Error decoding token: $e');
-      return null;
-    }
-  }
-
-  // Nouvelle méthode pour récupérer le PIN oublié
   Future<Map<String, dynamic>> forgotPin(String email) async {
     try {
-      final apiUrl = dotenv.get('API_BASE_URL', fallback: Constants.apiBaseUrl);
+      final apiUrl = await _getApiUrl();
 
       final response = await http.post(
-        Uri.parse('$apiUrl/auth/forgot-pin'),
+        Uri.parse(
+          '$apiUrl/auth/register',
+        ), // Réutiliser register pour générer un nouveau code
         headers: {'Content-Type': 'application/json'},
         body: json.encode({'email': email}),
       );
 
       if (response.statusCode == 200) {
-        return {'success': true, 'message': 'Nouveau PIN envoyé par email'};
+        final data = json.decode(response.body);
+        return {
+          'success': true,
+          'message': 'Nouveau code d\'accès envoyé par email',
+          'access_code': data['access_code'],
+        };
       } else {
         final errorData = json.decode(response.body);
         return {
@@ -221,37 +220,26 @@ class AuthService with ChangeNotifier {
         };
       }
     } catch (e) {
-      return {'success': false, 'message': 'Erreur de connexion'};
+      return {'success': false, 'message': 'Erreur de connexion: $e'};
     }
   }
 
   void setUserEmail(String email) {
     _userEmail = email;
+    StorageService().saveUserEmail(email);
+    notifyListeners();
   }
 
-  String? get userEmail => _userEmail;
+  Future<String> _getApiUrl() async {
+    final customUrl = await StorageService().getCustomUrl();
+    if (customUrl != null && customUrl.isNotEmpty) {
+      return customUrl;
+    }
+    return dotenv.get('API_BASE_URL', fallback: Constants.apiBaseUrl);
+  }
 }
 
-Future<Map<String, dynamic>> register(String email, String pin) async {
-  try {
-    final apiUrl = dotenv.get('API_BASE_URL', fallback: Constants.apiBaseUrl);
-
-    final response = await http.post(
-      Uri.parse('$apiUrl/auth/register'),
-      headers: {'Content-Type': 'application/json'},
-      body: json.encode({'email': email, 'pin': pin}),
-    );
-
-    if (response.statusCode == 200) {
-      return {'success': true, 'message': 'Compte créé avec succès'};
-    } else {
-      final errorData = json.decode(response.body);
-      return {
-        'success': false,
-        'message': errorData['detail'] ?? 'Erreur lors de l\'inscription',
-      };
-    }
-  } catch (e) {
-    return {'success': false, 'message': 'Erreur de connexion'};
-  }
+Future<Map<String, dynamic>> registerUser(String email) async {
+  final authService = AuthService();
+  return await authService.register(email);
 }

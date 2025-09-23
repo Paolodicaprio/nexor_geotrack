@@ -11,17 +11,15 @@ class RegisterPage extends StatefulWidget {
 
 class _RegisterPageState extends State<RegisterPage> {
   final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _pinController = TextEditingController();
-  final TextEditingController _confirmPinController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
-  bool _obscurePin = true;
-  bool _obscureConfirmPin = true;
 
   final Color _primaryGreen = const Color(0xFF2ECC40);
 
   @override
   Widget build(BuildContext context) {
+    final authService = Provider.of<AuthService>(context);
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -100,102 +98,6 @@ class _RegisterPageState extends State<RegisterPage> {
                       return null;
                     },
                   ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: _pinController,
-                    obscureText: _obscurePin,
-                    decoration: InputDecoration(
-                      labelText: 'PIN',
-                      labelStyle: TextStyle(color: _primaryGreen),
-                      filled: true,
-                      fillColor: _primaryGreen.withOpacity(0.08),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: _primaryGreen),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: _primaryGreen),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: _primaryGreen, width: 2),
-                      ),
-                      prefixIcon: Icon(Icons.lock, color: _primaryGreen),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscurePin ? Icons.visibility : Icons.visibility_off,
-                          color: _primaryGreen,
-                        ),
-                        onPressed: () {
-                          setState(() {
-                            _obscurePin = !_obscurePin;
-                          });
-                        },
-                      ),
-                      counterText: '',
-                    ),
-                    keyboardType: TextInputType.number,
-                    maxLength: 4,
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Veuillez créer un PIN';
-                      }
-                      if (value.length != 4) {
-                        return 'Le PIN doit contenir 4 chiffres';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: _confirmPinController,
-                    obscureText: _obscureConfirmPin,
-                    decoration: InputDecoration(
-                      labelText: 'Confirmer le PIN',
-                      labelStyle: TextStyle(color: _primaryGreen),
-                      filled: true,
-                      fillColor: _primaryGreen.withOpacity(0.08),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: _primaryGreen),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: _primaryGreen),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: _primaryGreen, width: 2),
-                      ),
-                      prefixIcon: Icon(Icons.lock, color: _primaryGreen),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscureConfirmPin
-                              ? Icons.visibility
-                              : Icons.visibility_off,
-                          color: _primaryGreen,
-                        ),
-                        onPressed: () {
-                          setState(() {
-                            _obscureConfirmPin = !_obscureConfirmPin;
-                          });
-                        },
-                      ),
-                      counterText: '',
-                    ),
-                    keyboardType: TextInputType.number,
-                    maxLength: 4,
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Veuillez confirmer votre PIN';
-                      }
-                      if (value != _pinController.text) {
-                        return 'Les PIN ne correspondent pas';
-                      }
-                      return null;
-                    },
-                  ),
                   const SizedBox(height: 24),
                   SizedBox(
                     width: double.infinity,
@@ -256,27 +158,50 @@ class _RegisterPageState extends State<RegisterPage> {
         _isLoading = true;
       });
 
-      // Appel de la vraie fonction d'inscription
-      final result = await register(_emailController.text, _pinController.text);
+      final authService = Provider.of<AuthService>(context, listen: false);
+
+      // UTILISER la méthode register de AuthService
+      final result = await authService.register(_emailController.text);
 
       setState(() {
         _isLoading = false;
       });
 
       if (result['success'] == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result['message']),
-            backgroundColor: Colors.green,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
+        showDialog(
+          context: context,
+          builder: (BuildContext context) {
+            return AlertDialog(
+              title: const Text('Compte créé avec succès'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Votre compte a été créé avec succès.'),
+                  const SizedBox(height: 16),
+                  Text('Code d\'accès: ${result['access_code']}'),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Important: Notez ce code car il ne sera plus affiché !',
+                    style: TextStyle(
+                      color: Colors.orange,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    Navigator.pop(context);
+                  },
+                  child: const Text('OK'),
+                ),
+              ],
+            );
+          },
         );
-
-        // Rediriger vers la page de connexion
-        Navigator.pop(context);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -295,8 +220,6 @@ class _RegisterPageState extends State<RegisterPage> {
   @override
   void dispose() {
     _emailController.dispose();
-    _pinController.dispose();
-    _confirmPinController.dispose();
     super.dispose();
   }
 }

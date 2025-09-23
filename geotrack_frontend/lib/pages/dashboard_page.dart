@@ -12,7 +12,7 @@ import 'package:geotrack_frontend/widgets/connection_status.dart';
 import 'package:geotrack_frontend/pages/settings_page.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:geotrack_frontend/services/auto_collect_service.dart'; // IMPORT AJOUTÉ
+import 'package:geotrack_frontend/services/auto_collect_service.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({Key? key}) : super(key: key);
@@ -68,16 +68,24 @@ class _DashboardPageState extends State<DashboardPage>
     }
 
     // Utiliser les valeurs de configuration ou les valeurs par défaut
-    final collectInterval = _currentConfig?.xParameter ?? 5;
-    final syncInterval = _currentConfig?.yParameter ?? 10;
+    final collectInterval =
+        _currentConfig?.collectionInterval ?? 300; // Secondes
+    final syncInterval = _currentConfig?.sendInterval ?? 600; // Secondes
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('collect_interval', collectInterval);
-    await prefs.setInt('sync_interval', syncInterval);
+    await prefs.setInt(
+      'collect_interval',
+      collectInterval ~/ 60,
+    ); // Convertir en minutes
+    await prefs.setInt(
+      'sync_interval',
+      syncInterval ~/ 60,
+    ); // Convertir en minutes
 
     setState(() {
-      _collectInterval = collectInterval;
-      _syncInterval = syncInterval;
+      _collectInterval =
+          collectInterval ~/ 60; // Stocker en minutes pour l'interface
+      _syncInterval = syncInterval ~/ 60; // Stocker en minutes pour l'interface
       _nextCollection = DateTime.now().add(Duration(minutes: _collectInterval));
       _nextSync = DateTime.now().add(Duration(minutes: _syncInterval));
     });
@@ -98,13 +106,14 @@ class _DashboardPageState extends State<DashboardPage>
       final config = await apiService.getConfig();
 
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt('collect_interval', config.xParameter);
-      await prefs.setInt('sync_interval', config.yParameter);
+      await prefs.setInt('collect_interval', config.collectionInterval ~/ 60);
+      await prefs.setInt('sync_interval', config.sendInterval ~/ 60);
 
       setState(() {
         _currentConfig = config;
-        _collectInterval = config.xParameter;
-        _syncInterval = config.yParameter;
+        _collectInterval =
+            config.collectionInterval ~/ 60; // Convertir en minutes
+        _syncInterval = config.sendInterval ~/ 60; // Convertir en minutes
         _nextCollection = DateTime.now().add(
           Duration(minutes: _collectInterval),
         );
@@ -115,6 +124,16 @@ class _DashboardPageState extends State<DashboardPage>
       _restartTimersWithNewIntervals();
     } catch (e) {
       print('❌ Error loading config: $e');
+      // Utiliser les valeurs par défaut si le chargement échoue
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _collectInterval = prefs.getInt('collect_interval') ?? 5;
+        _syncInterval = prefs.getInt('sync_interval') ?? 10;
+        _nextCollection = DateTime.now().add(
+          Duration(minutes: _collectInterval),
+        );
+        _nextSync = DateTime.now().add(Duration(minutes: _syncInterval));
+      });
     } finally {
       setState(() => _configLoading = false);
     }

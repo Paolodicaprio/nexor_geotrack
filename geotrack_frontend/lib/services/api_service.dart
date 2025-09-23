@@ -8,15 +8,13 @@ import 'storage_service.dart';
 
 class ApiService {
   static Future<String> getApiUrl() async {
-    // Vérifier l'URL personnalisée
     final customUrl = await StorageService().getCustomUrl();
     if (customUrl != null && customUrl.isNotEmpty) {
       return customUrl;
-    }else{
+    } else {
       return dotenv.get('API_BASE_URL', fallback: Constants.apiBaseUrl);
     }
   }
-
 
   Future<Map<String, String>> _getHeaders() async {
     final token = await StorageService().getToken();
@@ -32,7 +30,7 @@ class ApiService {
       final headers = await _getHeaders();
 
       final response = await http.get(
-        Uri.parse('$apiUrl/config/'),
+        Uri.parse('$apiUrl/time-config'),
         headers: headers,
       );
 
@@ -52,17 +50,10 @@ class ApiService {
       final apiUrl = await getApiUrl();
       final headers = await _getHeaders();
 
-      final body = {
-        "device_id": data.deviceId,
-        "lat": data.lat,
-        "lon": data.lon,
-        "timestamp": data.timestamp.toIso8601String(),
-      };
-
       final response = await http.post(
-        Uri.parse('$apiUrl/data/'),
+        Uri.parse('$apiUrl/location'),
         headers: headers,
-        body: json.encode(body),
+        body: json.encode(data.toApiJson()), // Utiliser le format API
       );
 
       if (response.statusCode == 200) {
@@ -78,17 +69,27 @@ class ApiService {
     }
   }
 
-  Future<List<GpsData>> getGpsData({String? deviceId}) async {
+  Future<List<GpsData>> getGpsData({
+    String? deviceId,
+    DateTime? dateStart,
+    DateTime? dateEnd,
+    int limit = 10,
+  }) async {
     try {
       final apiUrl = await getApiUrl();
       final headers = await _getHeaders();
 
-      final url =
-          deviceId != null
-              ? Uri.parse('$apiUrl/data/?device_id=$deviceId')
-              : Uri.parse('$apiUrl/data/');
+      final params = <String, String>{};
+      if (deviceId != null) params['idname'] = deviceId;
+      if (dateStart != null) params['datestart'] = dateStart.toIso8601String();
+      if (dateEnd != null) params['dateend'] = dateEnd.toIso8601String();
+      params['limit'] = limit.toString();
 
-      final response = await http.get(url, headers: headers);
+      final uri = Uri.parse(
+        '$apiUrl/location',
+      ).replace(queryParameters: params);
+
+      final response = await http.get(uri, headers: headers);
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
@@ -106,11 +107,11 @@ class ApiService {
       final apiUrl = await getApiUrl();
       final headers = await _getHeaders();
 
-      print('🔄 PUT Request to: $apiUrl/config/');
+      print('🔄 PUT Request to: $apiUrl/time-config');
       print('📦 Payload: $updates');
 
       final response = await http.put(
-        Uri.parse('$apiUrl/config/'),
+        Uri.parse('$apiUrl/time-config'),
         headers: headers,
         body: json.encode(updates),
       );
@@ -132,20 +133,18 @@ class ApiService {
     }
   }
 
-  // Méthode pour mettre à jour partiellement
-  Future<Config> partialUpdateConfig(Map<String, dynamic> updates) async {
+  Future<Config> createConfig(Map<String, dynamic> config) async {
     try {
       final apiUrl = await getApiUrl();
       final headers = await _getHeaders();
 
-      print('🔄 PATCH Request to: $apiUrl/config/');
-      print('📦 Payload: $updates');
-      print('🔑 Headers: $headers');
+      print('🔄 POST Request to: $apiUrl/time-config');
+      print('📦 Payload: $config');
 
-      final response = await http.patch(
-        Uri.parse('$apiUrl/config/'),
+      final response = await http.post(
+        Uri.parse('$apiUrl/time-config'),
         headers: headers,
-        body: json.encode(updates),
+        body: json.encode(config),
       );
 
       print('📤 Response Status: ${response.statusCode}');
@@ -156,11 +155,11 @@ class ApiService {
         return Config.fromJson(data);
       } else {
         throw Exception(
-          'Failed to update config: ${response.statusCode} - ${response.body}',
+          'Failed to create config: ${response.statusCode} - ${response.body}',
         );
       }
     } catch (e) {
-      print('❌ Error in partialUpdateConfig: $e');
+      print('❌ Error in createConfig: $e');
       rethrow;
     }
   }

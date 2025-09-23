@@ -17,39 +17,48 @@ class _SettingsPageState extends State<SettingsPage> {
   final TextEditingController _collectIntervalController =
       TextEditingController();
   final TextEditingController _syncIntervalController = TextEditingController();
-  final TextEditingController _oldPinController = TextEditingController();
-  final TextEditingController _newPinController = TextEditingController();
-  final TextEditingController _confirmPinController = TextEditingController();
-  final TextEditingController _emailController = TextEditingController();
   final TextEditingController _apiUrlController = TextEditingController();
 
   final _settingsFormKey = GlobalKey<FormState>();
-  final _pinFormKey = GlobalKey<FormState>();
   final _apiFormKey = GlobalKey<FormState>();
 
-  bool _obscureOldPin = true;
-  bool _obscureNewPin = true;
-  bool _obscureConfirmPin = true;
-  bool _isChangingPin = false;
-  bool _showPinSection = false;
   bool _showApiSection = false;
+  bool _configLoading = false;
 
   @override
   void initState() {
     super.initState();
     _loadSettings();
-    _loadUserEmail();
     _loadApiUrl();
   }
 
   Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _collectIntervalController.text =
-          (prefs.getInt('collect_interval') ?? 5).toString();
-      _syncIntervalController.text =
-          (prefs.getInt('sync_interval') ?? 10).toString();
-    });
+    setState(() => _configLoading = true);
+    try {
+      final apiService = ApiService();
+      final config = await apiService.getConfig();
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('collect_interval', config.collectionInterval ~/ 60);
+      await prefs.setInt('sync_interval', config.sendInterval ~/ 60);
+
+      setState(() {
+        _collectIntervalController.text =
+            (config.collectionInterval ~/ 60).toString();
+        _syncIntervalController.text = (config.sendInterval ~/ 60).toString();
+      });
+    } catch (e) {
+      // En cas d'erreur, charger depuis SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _collectIntervalController.text =
+            (prefs.getInt('collect_interval') ?? 5).toString();
+        _syncIntervalController.text =
+            (prefs.getInt('sync_interval') ?? 10).toString();
+      });
+    } finally {
+      setState(() => _configLoading = false);
+    }
   }
 
   Future<void> _loadApiUrl() async {
@@ -59,32 +68,29 @@ class _SettingsPageState extends State<SettingsPage> {
     });
   }
 
-  Future<void> _loadUserEmail() async {
-    final authService = Provider.of<AuthService>(context, listen: false);
-    if (authService.userEmail != null) {
-      _emailController.text = authService.userEmail!;
-    }
-  }
-
   Future<void> _saveSettings() async {
     if (_settingsFormKey.currentState!.validate()) {
-      final collectInterval = int.parse(_collectIntervalController.text);
-      final syncInterval = int.parse(_syncIntervalController.text);
+      final collectInterval =
+          int.parse(_collectIntervalController.text) *
+          60; // Convertir en secondes
+      final syncInterval =
+          int.parse(_syncIntervalController.text) * 60; // Convertir en secondes
 
       try {
         final apiService = ApiService();
 
-        // Utiliser PUT au lieu de PATCH
+        // Utiliser les bons noms de paramètres pour l'API
         final updatedConfig = await apiService.updateConfig({
-          'x_parameter': collectInterval,
-          'y_parameter': syncInterval,
-          // Ajouter device_id si requis par l'API
-          'device_id': 'mobile-device', // ou récupérer la valeur actuelle
+          'collection_interval': collectInterval,
+          'send_interval': syncInterval,
         });
 
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setInt('collect_interval', updatedConfig.xParameter);
-        await prefs.setInt('sync_interval', updatedConfig.yParameter);
+        await prefs.setInt(
+          'collect_interval',
+          updatedConfig.collectionInterval ~/ 60,
+        );
+        await prefs.setInt('sync_interval', updatedConfig.sendInterval ~/ 60);
 
         if (!mounted) return;
         Navigator.pop(context, true);
@@ -106,72 +112,6 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> _changePin() async {
-    if (_pinFormKey.currentState!.validate()) {
-      final authService = Provider.of<AuthService>(context, listen: false);
-
-      // Vérification plus robuste de l'authentification
-      if (!authService.isAuthenticated || authService.token == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Session expirée. Veuillez vous reconnecter'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
-
-      // Vérifier que l'email correspond à celui du token
-      final tokenEmail = authService.getEmailFromToken();
-      if (tokenEmail != _emailController.text) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Email ne correspond pas au compte connecté'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
-
-      setState(() {
-        _isChangingPin = true;
-      });
-
-      final result = await authService.changePin(
-        _emailController.text,
-        _oldPinController.text,
-        _newPinController.text,
-      );
-
-      setState(() {
-        _isChangingPin = false;
-      });
-
-      if (result['success']) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result['message']),
-            backgroundColor: Colors.green,
-          ),
-        );
-
-        _oldPinController.clear();
-        _newPinController.clear();
-        _confirmPinController.clear();
-        setState(() {
-          _showPinSection = false;
-        });
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result['message']),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
   Future<void> _logout() async {
     final authService = Provider.of<AuthService>(context, listen: false);
     await authService.logout();
@@ -183,36 +123,35 @@ class _SettingsPageState extends State<SettingsPage> {
     if (_apiFormKey.currentState!.validate()) {
       await StorageService().saveCustomUrl(_apiUrlController.text);
       setState(() {
-        _showApiSection=false;
+        _showApiSection = false;
       });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Url modifié avec succès'),
+          content: Text('URL modifiée avec succès'),
           backgroundColor: Colors.green,
         ),
       );
     }
   }
-  Future<void> _clearApiUrl() async {
-      await StorageService().clearCustomUrl();
-      setState(() {
-        _showApiSection=false;
-      });
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Url reinitialisé avec succès'),
-          backgroundColor: Colors.green,
-        ),
-      );
-  }
 
+  Future<void> _clearApiUrl() async {
+    await StorageService().clearCustomUrl();
+    setState(() {
+      _showApiSection = false;
+    });
+    await _loadApiUrl(); // Recharger l'URL par défaut
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('URL réinitialisée avec succès'),
+        backgroundColor: Colors.green,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final authService = Provider.of<AuthService>(context);
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Paramètres'),
@@ -264,7 +203,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           }
                           final val = int.tryParse(value);
                           if (val == null || val < 1) {
-                            return 'Intervalle invalide';
+                            return 'Intervalle invalide (min. 1 minute)';
                           }
                           return null;
                         },
@@ -284,7 +223,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           }
                           final val = int.tryParse(value);
                           if (val == null || val < 1) {
-                            return 'Intervalle invalide';
+                            return 'Intervalle invalide (min. 1 minute)';
                           }
                           return null;
                         },
@@ -294,8 +233,13 @@ class _SettingsPageState extends State<SettingsPage> {
                         width: double.infinity,
                         child: ElevatedButton.icon(
                           icon: const Icon(Icons.save),
-                          label: const Text('Sauvegarder les paramètres'),
-                          onPressed: _saveSettings,
+                          label:
+                              _configLoading
+                                  ? const CircularProgressIndicator(
+                                    color: Colors.white,
+                                  )
+                                  : const Text('Sauvegarder les paramètres'),
+                          onPressed: _configLoading ? null : _saveSettings,
                           style: ElevatedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             backgroundColor: Colors.green,
@@ -310,7 +254,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const SizedBox(height: 24),
 
-            // Section Modification du PIN
+            // Section Configuration API
             Card(
               elevation: 2,
               shape: RoundedRectangleBorder(
@@ -323,211 +267,10 @@ class _SettingsPageState extends State<SettingsPage> {
                   children: [
                     Row(
                       children: [
-                        const Icon(Icons.lock, color: Colors.green),
+                        const Icon(Icons.api, color: Colors.green),
                         const SizedBox(width: 12),
                         const Text(
-                          'Sécurité',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const Spacer(),
-                        IconButton(
-                          icon: Icon(
-                            _showPinSection
-                                ? Icons.expand_less
-                                : Icons.expand_more,
-                            color: Colors.green,
-                          ),
-                          onPressed: () {
-                            setState(() {
-                              _showPinSection = !_showPinSection;
-                            });
-                          },
-                        ),
-                      ],
-                    ),
-
-                    if (_showPinSection) ...[
-                      const SizedBox(height: 16),
-                      Form(
-                        key: _pinFormKey,
-                        child: Column(
-                          children: [
-                            TextFormField(
-                              controller: _emailController,
-                              decoration: const InputDecoration(
-                                labelText: 'Email',
-                                border: OutlineInputBorder(),
-                                prefixIcon: Icon(Icons.email),
-                              ),
-                              keyboardType: TextInputType.emailAddress,
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Veuillez entrer votre email';
-                                }
-                                if (!RegExp(
-                                  r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
-                                ).hasMatch(value)) {
-                                  return 'Email invalide';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 16),
-                            TextFormField(
-                              controller: _oldPinController,
-                              obscureText: _obscureOldPin,
-                              decoration: InputDecoration(
-                                labelText: 'Ancien PIN',
-                                border: const OutlineInputBorder(),
-                                prefixIcon: const Icon(Icons.lock_outline),
-                                suffixIcon: IconButton(
-                                  icon: Icon(
-                                    _obscureOldPin
-                                        ? Icons.visibility
-                                        : Icons.visibility_off,
-                                  ),
-                                  onPressed: () {
-                                    setState(() {
-                                      _obscureOldPin = !_obscureOldPin;
-                                    });
-                                  },
-                                ),
-                              ),
-                              keyboardType: TextInputType.number,
-                              maxLength: 4,
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Veuillez entrer votre ancien PIN';
-                                }
-                                if (value.length != 4) {
-                                  return 'Le PIN doit contenir 4 chiffres';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 16),
-                            TextFormField(
-                              controller: _newPinController,
-                              obscureText: _obscureNewPin,
-                              decoration: InputDecoration(
-                                labelText: 'Nouveau PIN',
-                                border: const OutlineInputBorder(),
-                                prefixIcon: const Icon(Icons.lock),
-                                suffixIcon: IconButton(
-                                  icon: Icon(
-                                    _obscureNewPin
-                                        ? Icons.visibility
-                                        : Icons.visibility_off,
-                                  ),
-                                  onPressed: () {
-                                    setState(() {
-                                      _obscureNewPin = !_obscureNewPin;
-                                    });
-                                  },
-                                ),
-                              ),
-                              keyboardType: TextInputType.number,
-                              maxLength: 4,
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Veuillez entrer un nouveau PIN';
-                                }
-                                if (value.length != 4) {
-                                  return 'Le PIN doit contenir 4 chiffres';
-                                }
-                                if (value == _oldPinController.text) {
-                                  return 'Le nouveau PIN doit être différent';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 16),
-                            TextFormField(
-                              controller: _confirmPinController,
-                              obscureText: _obscureConfirmPin,
-                              decoration: InputDecoration(
-                                labelText: 'Confirmer le nouveau PIN',
-                                border: const OutlineInputBorder(),
-                                prefixIcon: const Icon(Icons.lock),
-                                suffixIcon: IconButton(
-                                  icon: Icon(
-                                    _obscureConfirmPin
-                                        ? Icons.visibility
-                                        : Icons.visibility_off,
-                                  ),
-                                  onPressed: () {
-                                    setState(() {
-                                      _obscureConfirmPin = !_obscureConfirmPin;
-                                    });
-                                  },
-                                ),
-                              ),
-                              keyboardType: TextInputType.number,
-                              maxLength: 4,
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Veuillez confirmer votre PIN';
-                                }
-                                if (value != _newPinController.text) {
-                                  return 'Les PIN ne correspondent pas';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 16),
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton.icon(
-                                icon:
-                                    _isChangingPin
-                                        ? const CircularProgressIndicator(
-                                          color: Colors.white,
-                                          strokeWidth: 2,
-                                        )
-                                        : const Icon(Icons.lock_reset),
-                                label: Text(
-                                  _isChangingPin
-                                      ? 'Modification...'
-                                      : 'Modifier le PIN',
-                                ),
-                                onPressed: _isChangingPin ? null : _changePin,
-                                style: ElevatedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 16,
-                                  ),
-                                  backgroundColor: Colors.green,
-                                  foregroundColor: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Card(
-              elevation: 2,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.compare_arrows_rounded, color: Colors.green),
-                        const SizedBox(width: 12),
-                        const Text(
-                          'Configuration de L\'API',
+                          'Configuration de l\'API',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
@@ -549,7 +292,6 @@ class _SettingsPageState extends State<SettingsPage> {
                         ),
                       ],
                     ),
-
                     if (_showApiSection) ...[
                       const SizedBox(height: 16),
                       Form(
@@ -559,19 +301,20 @@ class _SettingsPageState extends State<SettingsPage> {
                             TextFormField(
                               controller: _apiUrlController,
                               decoration: const InputDecoration(
-                                labelText: 'Url de l\'API',
+                                labelText: 'URL de l\'API',
                                 border: OutlineInputBorder(),
                                 prefixIcon: Icon(Icons.link),
+                                hintText: 'http://10.0.2.2:8000',
                               ),
-                              keyboardType: TextInputType.text,
+                              keyboardType: TextInputType.url,
                               validator: (value) {
                                 if (value == null || value.trim().isEmpty) {
                                   return 'Veuillez entrer l\'URL de l\'API';
                                 }
-                                // Vérifier si l'URL est valide
                                 final uri = Uri.tryParse(value.trim());
-                                if (uri == null || (!uri.hasScheme || !uri.hasAuthority)) {
-                                  return 'URL invalide (doit contenir http:// ou https://)';
+                                if (uri == null ||
+                                    (!uri.hasScheme || !uri.hasAuthority)) {
+                                  return 'URL invalide (ex: http://10.0.2.2:8000)';
                                 }
                                 return null;
                               },
@@ -581,7 +324,7 @@ class _SettingsPageState extends State<SettingsPage> {
                               width: double.infinity,
                               child: ElevatedButton.icon(
                                 icon: const Icon(Icons.update),
-                                label: Text('Modifier l\'url'),
+                                label: const Text('Modifier l\'URL'),
                                 onPressed: _changeApiUrl,
                                 style: ElevatedButton.styleFrom(
                                   padding: const EdgeInsets.symmetric(
@@ -592,12 +335,14 @@ class _SettingsPageState extends State<SettingsPage> {
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 8),
                             SizedBox(
                               width: double.infinity,
                               child: ElevatedButton.icon(
                                 icon: const Icon(Icons.clear),
-                                label: Text('Revenir a l \'url par défaut '),
+                                label: const Text(
+                                  'Revenir à l\'URL par défaut',
+                                ),
                                 onPressed: _clearApiUrl,
                                 style: ElevatedButton.styleFrom(
                                   padding: const EdgeInsets.symmetric(
@@ -617,8 +362,6 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
             const SizedBox(height: 24),
-            const SizedBox(height: 24),
-
 
             // Bouton de déconnexion
             SizedBox(
@@ -646,10 +389,7 @@ class _SettingsPageState extends State<SettingsPage> {
   void dispose() {
     _collectIntervalController.dispose();
     _syncIntervalController.dispose();
-    _oldPinController.dispose();
-    _newPinController.dispose();
-    _confirmPinController.dispose();
-    _emailController.dispose();
+    _apiUrlController.dispose();
     super.dispose();
   }
 }

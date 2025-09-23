@@ -22,10 +22,10 @@ class GpsData {
   factory GpsData.fromJson(Map<String, dynamic> json) {
     return GpsData(
       id: json['id']?.toString(),
-      deviceId: json['device_id'],
-      lat: json['lat']?.toDouble() ?? 0.0,
-      lon: json['lon']?.toDouble() ?? 0.0,
-      timestamp: DateTime.parse(json['timestamp']),
+      deviceId: json['device_id'] ?? json['idname'] ?? 'unknown',
+      lat: json['lat']?.toDouble() ?? json['latitude']?.toDouble() ?? 0.0,
+      lon: json['lon']?.toDouble() ?? json['longitude']?.toDouble() ?? 0.0,
+      timestamp: DateTime.parse(json['timestamp'] ?? json['datetime']),
       synced: json['synced'],
       createdAt:
           json['created_at'] != null
@@ -41,8 +41,18 @@ class GpsData {
       'lat': lat,
       'lon': lon,
       'timestamp': timestamp.toIso8601String(),
-      'synced': synced, // Ajouter synced au JSON
+      'synced': synced,
       'created_at': createdAt?.toIso8601String(),
+    };
+  }
+
+  // Pour l'envoi à l'API
+  Map<String, dynamic> toApiJson() {
+    return {
+      'idname': deviceId,
+      'latitude': lat,
+      'longitude': lon,
+      'datetime': timestamp.toIso8601String(),
     };
   }
 
@@ -54,7 +64,7 @@ class GpsData {
       lon: lon,
       timestamp: timestamp,
       synced: synced ?? this.synced,
-      // autres champs...
+      createdAt: createdAt,
     );
   }
 }

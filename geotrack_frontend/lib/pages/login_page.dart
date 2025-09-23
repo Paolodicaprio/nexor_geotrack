@@ -12,6 +12,7 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
+  final TextEditingController _emailController = TextEditingController();
   final TextEditingController _pinController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
@@ -72,15 +73,51 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Entrez votre PIN',
+                    'Entrez vos identifiants',
                     style: TextStyle(fontSize: 16, color: Colors.grey[700]),
                   ),
                   const SizedBox(height: 24),
+                  // AJOUT: Champ email
+                  TextFormField(
+                    controller: _emailController,
+                    decoration: InputDecoration(
+                      labelText: 'Email',
+                      labelStyle: TextStyle(color: _primaryGreen),
+                      filled: true,
+                      fillColor: _primaryGreen.withOpacity(0.08),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: _primaryGreen),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: _primaryGreen),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: _primaryGreen, width: 2),
+                      ),
+                      prefixIcon: Icon(Icons.email, color: _primaryGreen),
+                    ),
+                    keyboardType: TextInputType.emailAddress,
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Veuillez entrer votre email';
+                      }
+                      if (!RegExp(
+                        r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
+                      ).hasMatch(value)) {
+                        return 'Email invalide';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
                   TextFormField(
                     controller: _pinController,
                     obscureText: _obscurePin,
                     decoration: InputDecoration(
-                      labelText: 'PIN',
+                      labelText: 'Code d\'accès',
                       labelStyle: TextStyle(color: _primaryGreen),
                       filled: true,
                       fillColor: _primaryGreen.withOpacity(0.08),
@@ -110,14 +147,14 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       counterText: '',
                     ),
-                    keyboardType: TextInputType.number,
-                    maxLength: 4,
+                    keyboardType: TextInputType.text,
+                    maxLength: 8, // Code d'accès API = 8 caractères
                     validator: (value) {
                       if (value == null || value.isEmpty) {
-                        return 'Veuillez entrer votre PIN';
+                        return 'Veuillez entrer votre code d\'accès';
                       }
-                      if (value.length != 4) {
-                        return 'Le PIN doit contenir 4 chiffres';
+                      if (value.length != 8) {
+                        return 'Le code d\'accès doit contenir 8 caractères';
                       }
                       return null;
                     },
@@ -214,7 +251,7 @@ class _LoginPageState extends State<LoginPage> {
                               );
                             },
                     child: Text(
-                      'Code PIN oublié ?',
+                      'Code d\'accès oublié ?',
                       style: TextStyle(
                         color:
                             authService.isBlocked()
@@ -244,7 +281,10 @@ class _LoginPageState extends State<LoginPage> {
       });
 
       final authService = Provider.of<AuthService>(context, listen: false);
-      final result = await authService.login(_pinController.text);
+      final result = await authService.login(
+        _emailController.text,
+        _pinController.text,
+      );
 
       setState(() {
         _isLoading = false;
@@ -269,6 +309,7 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   void dispose() {
+    _emailController.dispose();
     _pinController.dispose();
     super.dispose();
   }
