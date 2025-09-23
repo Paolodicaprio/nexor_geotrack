@@ -111,20 +111,26 @@ class _DashboardPageState extends State<DashboardPage>
 
       setState(() {
         _currentConfig = config;
-        _collectInterval =
-            config.collectionInterval ~/ 60; // Convertir en minutes
-        _syncInterval = config.sendInterval ~/ 60; // Convertir en minutes
+        _collectInterval = config.collectionInterval ~/ 60;
+        _syncInterval = config.sendInterval ~/ 60;
         _nextCollection = DateTime.now().add(
           Duration(minutes: _collectInterval),
         );
         _nextSync = DateTime.now().add(Duration(minutes: _syncInterval));
       });
 
-      // Redémarrer les timers avec les nouveaux intervalles
       _restartTimersWithNewIntervals();
     } catch (e) {
       print('❌ Error loading config: $e');
-      // Utiliser les valeurs par défaut si le chargement échoue
+
+      // Gestion spécifique du token expiré
+      if (e.toString().contains('401') ||
+          e.toString().contains('Token expiré')) {
+        _handleTokenExpired();
+        return;
+      }
+
+      // Utiliser les valeurs par défaut si autre erreur
       final prefs = await SharedPreferences.getInstance();
       setState(() {
         _collectInterval = prefs.getInt('collect_interval') ?? 5;
@@ -139,6 +145,24 @@ class _DashboardPageState extends State<DashboardPage>
     }
   }
 
+  void _handleTokenExpired() {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Session expirée - Redirection...'),
+        backgroundColor: Colors.orange,
+        duration: Duration(seconds: 2),
+      ),
+    );
+
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/login');
+      }
+    });
+  }
+
   Future<void> _loadIntervals() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
@@ -151,7 +175,6 @@ class _DashboardPageState extends State<DashboardPage>
     setState(() {
       _stats = {'pending_count': _pendingData.length, 'last_collection': null};
     });
-    // À compléter selon tes besoins
   }
 
   Future<void> _loadPendingData() async {

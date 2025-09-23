@@ -24,23 +24,41 @@ class ApiService {
     };
   }
 
+  Future<bool> testConnection() async {
+    try {
+      final apiUrl = await getApiUrl();
+      final response = await http.get(Uri.parse('$apiUrl/health'));
+      return response.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
+  }
+
   Future<Config> getConfig() async {
     try {
       final apiUrl = await getApiUrl();
       final headers = await _getHeaders();
 
-      final response = await http.get(
-        Uri.parse('$apiUrl/time-config'),
-        headers: headers,
-      );
+      final response = await http
+          .get(Uri.parse('$apiUrl/time-config'), headers: headers)
+          .timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         return Config.fromJson(data);
+      } else if (response.statusCode == 401) {
+        // Token expiré - déconnecter l'utilisateur
+        await StorageService().deleteToken();
+        throw Exception('Token expiré - Veuillez vous reconnecter');
       } else {
-        throw Exception('Failed to load config: ${response.statusCode}');
+        throw Exception(
+          'Failed to load config: ${response.statusCode} - ${response.body}',
+        );
       }
     } catch (e) {
+      if (e.toString().contains('Token expiré')) {
+        rethrow; // Propager l'erreur d'authentification
+      }
       throw Exception('Failed to load config: $e');
     }
   }

@@ -24,10 +24,10 @@ class GeoTrackApp extends StatelessWidget {
           visualDensity: VisualDensity.adaptivePlatformDensity,
         ),
         home: FutureBuilder(
-          future: StorageService().getToken(),
+          future: _checkAuthentication(context), // MODIFIÉ
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.done) {
-              if (snapshot.hasData && snapshot.data != null) {
+              if (snapshot.hasData && snapshot.data == true) {
                 return const DashboardPage();
               } else {
                 return const LoginPage();
@@ -46,5 +46,16 @@ class GeoTrackApp extends StatelessWidget {
         },
       ),
     );
+  }
+
+  // NOUVELLE méthode pour vérifier l'authentification
+  Future<bool> _checkAuthentication(BuildContext context) async {
+    try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      return await authService.checkAuth();
+    } catch (e) {
+      print('❌ Error checking auth: $e');
+      return false;
+    }
   }
 }

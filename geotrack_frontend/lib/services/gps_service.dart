@@ -37,7 +37,12 @@ class GpsService {
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.best,
       );
-
+      if (position.latitude < -90 ||
+          position.latitude > 90 ||
+          position.longitude < -180 ||
+          position.longitude > 180) {
+        throw Exception('Coordonnées GPS invalides');
+      }
       return GpsData(
         id: const Uuid().v4(),
         deviceId: await _getDeviceId(),

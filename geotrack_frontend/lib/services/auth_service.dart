@@ -8,6 +8,7 @@ import 'package:geotrack_frontend/models/auth_model.dart';
 import 'package:geotrack_frontend/utils/constants.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'storage_service.dart';
+import 'dart:convert';
 
 class AuthService with ChangeNotifier {
   bool _isAuthenticated = false;
@@ -97,34 +98,25 @@ class AuthService with ChangeNotifier {
     }
   }
 
-  // AJOUT: Méthode register dans la classe AuthService
   Future<Map<String, dynamic>> register(String email) async {
     try {
-      // Test avec une requête GET simple d'abord
-      print('🔍 Testing basic connectivity...');
-      final testResponse = await http.get(
-        Uri.parse('https://portal.inma.ucl.ac.be'),
-        headers: {'User-Agent': 'Flutter App'},
-      );
-      print('🌐 Basic connectivity test: ${testResponse.statusCode}');
+      final apiUrl = await _getApiUrl();
 
-      // Maintenant la requête POST
-      final apiUrl = 'https://portal.inma.ucl.ac.be/geotrack/auth/register';
-      print('🔄 Register attempt - URL: $apiUrl');
+      print('🔄 Register attempt - URL: $apiUrl/auth/register');
 
       final response = await http
           .post(
-            Uri.parse(apiUrl),
+            Uri.parse('$apiUrl/auth/register'),
             headers: {
               'Content-Type': 'application/json',
               'Accept': 'application/json',
-              'User-Agent': 'Flutter App',
             },
             body: json.encode({'email': email}),
           )
           .timeout(const Duration(seconds: 10));
 
       print('📤 Response Status: ${response.statusCode}');
+      print('📤 Response Body: ${response.body}');
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -134,17 +126,19 @@ class AuthService with ChangeNotifier {
           'access_code': data['access_code'],
         };
       } else {
+        final errorData = json.decode(response.body);
         return {
           'success': false,
-          'message': 'Erreur HTTP ${response.statusCode}: ${response.body}',
+          'message':
+              errorData['detail'] ?? 'Erreur HTTP ${response.statusCode}',
         };
       }
     } catch (e) {
       print('❌ Detailed error: $e');
-      print('❌ Error type: ${e.runtimeType}');
-      print('❌ Stack trace: ${StackTrace.current}');
-
-      return {'success': false, 'message': 'Erreur détaillée: ${e.toString()}'};
+      return {
+        'success': false,
+        'message': 'Erreur de connexion: ${e.toString()}',
+      };
     }
   }
 
@@ -177,20 +171,6 @@ class AuthService with ChangeNotifier {
     await StorageService().deleteToken();
     await StorageService().deleteUserEmail();
     notifyListeners();
-  }
-
-  Future<bool> checkAuth() async {
-    final token = await StorageService().getToken();
-    final email = await StorageService().getUserEmail();
-
-    if (token != null && email != null) {
-      _token = token;
-      _userEmail = email;
-      _isAuthenticated = true;
-      notifyListeners();
-      return true;
-    }
-    return false;
   }
 
   Future<Map<String, dynamic>> forgotPin(String email) async {
@@ -237,9 +217,43 @@ class AuthService with ChangeNotifier {
     }
     return dotenv.get('API_BASE_URL', fallback: Constants.apiBaseUrl);
   }
-}
 
-Future<Map<String, dynamic>> registerUser(String email) async {
-  final authService = AuthService();
-  return await authService.register(email);
+  Future<bool> _isTokenValid(String token) async {
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) return false;
+
+      // Decoder le payload JWT
+      final payload = json.decode(utf8.decode(base64Url.decode(parts[1])));
+      final exp = payload['exp'] as int?;
+      if (exp == null) return true; // Si pas d'expiration, considérer valide
+
+      final expiryTime = DateTime.fromMillisecondsSinceEpoch(exp * 1000);
+      return DateTime.now().isBefore(expiryTime);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<bool> checkAuth() async {
+    final token = await StorageService().getToken();
+    final email = await StorageService().getUserEmail();
+
+    if (token != null && email != null) {
+      // Vérifier si le token est encore valide
+      if (await _isTokenValid(token)) {
+        _token = token;
+        _userEmail = email;
+        _isAuthenticated = true;
+        notifyListeners();
+        return true;
+      } else {
+        // Token expiré, déconnecter l'utilisateur automatiquement
+        print('🔑 Token expiré, déconnexion automatique');
+        await logout();
+        return false;
+      }
+    }
+    return false;
+  }
 }
