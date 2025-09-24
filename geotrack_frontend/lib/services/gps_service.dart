@@ -1,5 +1,6 @@
 import 'package:geolocator/geolocator.dart';
 import 'package:geotrack_frontend/models/gps_data_model.dart';
+import 'package:geotrack_frontend/services/storage_service.dart';
 import 'package:uuid/uuid.dart';
 
 class GpsService {
@@ -57,7 +58,7 @@ class GpsService {
 
   Future<String> _getDeviceId() async {
     // Utiliser un identifiant unique pour l'appareil
-    return 'mobile-device-${DateTime.now().millisecondsSinceEpoch}';
+    return await StorageService().getOrCreateDeviceId();
   }
 
   Stream<Position> getLocationStream() {

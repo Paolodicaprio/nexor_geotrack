@@ -168,8 +168,9 @@ class AuthService with ChangeNotifier {
     _failedAttempts = 0;
     _blockUntil = null;
     _userEmail = null;
-    await StorageService().deleteToken();
-    await StorageService().deleteUserEmail();
+    final store = StorageService();
+    await store.deleteUserEmail();
+    await store.clearAllData();
     notifyListeners();
   }
 

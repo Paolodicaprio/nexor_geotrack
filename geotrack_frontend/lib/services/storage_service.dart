@@ -2,6 +2,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geotrack_frontend/models/gps_data_model.dart';
 import 'dart:convert';
+import 'package:nanoid/nanoid.dart';
 
 class StorageService {
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
@@ -9,6 +10,7 @@ class StorageService {
   final String _pendingDataKey = 'pending_gps_data';
   final String _syncedDataKey = 'synced_gps_data';
   final String _customApiUrlKey = 'custom_api_url';
+  final String _deviceIdKey = 'device_id';
 
   Future<void> saveToken(String token) async {
     await _secureStorage.write(key: _tokenKey, value: token);
@@ -61,6 +63,7 @@ class StorageService {
   Future<void> clearAllData() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_pendingDataKey);
+    await prefs.remove(_syncedDataKey);
     await deleteToken();
   }
 
@@ -162,5 +165,18 @@ class StorageService {
 
   Future<void> deleteAccessCode() async {
     await _secureStorage.delete(key: 'access_code');
+  }
+  Future<String> getOrCreateDeviceId() async {
+    String? deviceId = await _secureStorage.read(key: _deviceIdKey);
+    if (deviceId == null){
+      final uuid = nanoid(10);
+      deviceId = 'mobile-device-$uuid';
+      await _secureStorage.write(key: _deviceIdKey, value: deviceId);
+    }
+    return deviceId;
+  }
+
+  Future<void> deleteDeviceId() async {
+    await _secureStorage.delete(key: _deviceIdKey);
   }
 }

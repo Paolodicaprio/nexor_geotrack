@@ -50,6 +50,14 @@ class ApiService {
         // Token expiré - déconnecter l'utilisateur
         await StorageService().deleteToken();
         throw Exception('Token expiré - Veuillez vous reconnecter');
+      }else if(response.statusCode == 404 ){
+        // créer une config par defaut
+        final defaultConfig = {
+          "collection_interval": 300,
+          "send_interval": 600
+        };
+        final config = await createConfig(defaultConfig);
+        return config;
       } else {
         throw Exception(
           'Failed to load config: ${response.statusCode} - ${response.body}',
