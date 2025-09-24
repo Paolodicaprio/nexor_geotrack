@@ -8,6 +8,7 @@ import 'package:geotrack_frontend/services/auto_collect_service.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_background_service_android/flutter_background_service_android.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:shared_preferences/shared_preferences.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -73,8 +74,13 @@ void onStart(ServiceInstance service) {
 }
 
 void startPeriodicTasks(ServiceInstance service) async {
-  // Timer pour la collecte GPS (toutes les 5 minutes)
-  Timer.periodic(const Duration(minutes: 5), (timer) async {
+  // Lire les intervalles depuis SharedPreferences
+  final prefs = await SharedPreferences.getInstance();
+
+  // Timer pour la collecte GPS (intervalle configuré)
+  Timer.periodic(Duration(minutes: prefs.getInt('collect_interval') ?? 5), (
+    timer,
+  ) async {
     if (service is AndroidServiceInstance) {
       if (await service.isForegroundService()) {
         await AutoCollectService.collectGpsDataBackground();
@@ -93,8 +99,10 @@ void startPeriodicTasks(ServiceInstance service) async {
     }
   });
 
-  // Timer pour la synchronisation (toutes les 10 minutes)
-  Timer.periodic(const Duration(minutes: 10), (timer) async {
+  // Timer pour la synchronisation (intervalle configuré)
+  Timer.periodic(Duration(minutes: prefs.getInt('sync_interval') ?? 10), (
+    timer,
+  ) async {
     await AutoCollectService.syncGpsDataBackground();
 
     // Mettre à jour la notification après synchronisation

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:geotrack_frontend/models/config_model.dart';
 import 'package:geotrack_frontend/models/gps_data_model.dart';
 import 'package:geotrack_frontend/services/api_service.dart';
@@ -298,12 +299,91 @@ class _DashboardPageState extends State<DashboardPage>
 
   Future<void> _autoCollect() async {
     try {
-      // Utilisation de la nouvelle méthode
+      // Vérifier la localisation avant de collecter
+      final isLocationEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!isLocationEnabled) {
+        _showLocationWarning();
+        return;
+      }
+
+      // Vérifier les permissions
+      final hasPermission = await _gpsService.checkPermission();
+      if (!hasPermission) {
+        _showPermissionWarning();
+        return;
+      }
+
       await AutoCollectService.collectGpsDataBackground();
       await _loadStats();
-      await _loadPendingData(); // Recharger les données en attente
-      await _loadHistoryData(); // Recharger l'historique
+      await _loadPendingData();
+      await _loadHistoryData();
     } catch (_) {}
+  }
+
+  void _showLocationWarning() {
+    if (!mounted) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: const Text('Localisation désactivée'),
+            content: const Text(
+              'La localisation de votre téléphone est désactivée. '
+              'Veuillez l\'activer pour permettre la collecte automatique des données GPS.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Ignorer'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  await Geolocator.openLocationSettings();
+                  Navigator.of(context).pop();
+                },
+                child: const Text('Activer'),
+              ),
+            ],
+          );
+        },
+      );
+    });
+  }
+
+  void _showPermissionWarning() {
+    if (!mounted) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: const Text('Permission requise'),
+            content: const Text(
+              'L\'application a besoin de la permission de localisation '
+              'pour collecter les données GPS.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Ignorer'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  await Geolocator.requestPermission();
+                  Navigator.of(context).pop();
+                },
+                child: const Text('Autoriser'),
+              ),
+            ],
+          );
+        },
+      );
+    });
   }
 
   Future<void> _autoSync() async {

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:geotrack_frontend/pages/register_page.dart';
+import 'package:geotrack_frontend/services/gps_service.dart';
 import 'package:provider/provider.dart';
 import 'package:geotrack_frontend/services/auth_service.dart';
 import 'package:geotrack_frontend/pages/forgot_pin_page.dart';
@@ -291,7 +293,8 @@ class _LoginPageState extends State<LoginPage> {
       });
 
       if (result.success) {
-        Navigator.pushReplacementNamed(context, '/dashboard');
+        // VÉRIFICATION DES PERMISSIONS DE LOCALISATION APRÈS CONNEXION
+        await _checkLocationPermissions();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -305,6 +308,100 @@ class _LoginPageState extends State<LoginPage> {
         );
       }
     }
+  }
+
+  Future<void> _checkLocationPermissions() async {
+    final gpsService = GpsService();
+
+    // Vérifier d'abord si la localisation du mobile est activée
+    final isLocationEnabled = await Geolocator.isLocationServiceEnabled();
+
+    if (!isLocationEnabled) {
+      // Localisation du mobile désactivée
+      await _showEnableLocationDialog();
+      return;
+    }
+
+    // Ensuite vérifier les permissions de l'app
+    final hasAppPermission = await gpsService.checkPermission();
+
+    if (!hasAppPermission) {
+      // Permission de l'app refusée
+      await _showLocationPermissionDialog();
+    } else {
+      // Tout est OK, rediriger
+      Navigator.pushReplacementNamed(context, '/dashboard');
+    }
+  }
+
+  Future<void> _showEnableLocationDialog() async {
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Localisation requise'),
+          content: const Text(
+            'La localisation de votre téléphone est désactivée. '
+            'Veuillez l\'activer dans les paramètres de votre appareil pour utiliser l\'application.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                // Rediriger quand même vers le dashboard
+                Navigator.pushReplacementNamed(context, '/dashboard');
+              },
+              child: const Text('Ignorer'),
+            ),
+            TextButton(
+              onPressed: () async {
+                // Ouvrir les paramètres de localisation du téléphone
+                await Geolocator.openLocationSettings();
+                Navigator.of(context).pop();
+                // Re-vérifier après retour des paramètres
+                await _checkLocationPermissions();
+              },
+              child: const Text('Activer'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _showLocationPermissionDialog() async {
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Permission requise'),
+          content: const Text(
+            'L\'application a besoin d\'accéder à votre localisation pour fonctionner correctement.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.pushReplacementNamed(context, '/dashboard');
+              },
+              child: const Text('Ignorer'),
+            ),
+            TextButton(
+              onPressed: () async {
+                // Demander la permission
+                await Geolocator.requestPermission();
+                Navigator.of(context).pop();
+                // Re-vérifier après la permission
+                await _checkLocationPermissions();
+              },
+              child: const Text('Autoriser'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override

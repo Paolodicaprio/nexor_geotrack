@@ -4,6 +4,7 @@ import 'package:geotrack_frontend/pages/forgot_pin_page.dart';
 import 'package:geotrack_frontend/pages/login_page.dart';
 import 'package:geotrack_frontend/services/auth_service.dart';
 import 'package:geotrack_frontend/services/storage_service.dart';
+import 'package:geotrack_frontend/utils/auth_wrapper.dart';
 import 'package:provider/provider.dart';
 
 class GeoTrackApp extends StatelessWidget {
@@ -23,22 +24,7 @@ class GeoTrackApp extends StatelessWidget {
           primarySwatch: Colors.blue,
           visualDensity: VisualDensity.adaptivePlatformDensity,
         ),
-        home: FutureBuilder(
-          future: _checkAuthentication(context), // MODIFIÉ
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.done) {
-              if (snapshot.hasData && snapshot.data == true) {
-                return const DashboardPage();
-              } else {
-                return const LoginPage();
-              }
-            } else {
-              return const Scaffold(
-                body: Center(child: CircularProgressIndicator()),
-              );
-            }
-          },
-        ),
+        home: const AuthWrapper(), // Utilisez le nouveau wrapper
         routes: {
           '/login': (context) => const LoginPage(),
           '/dashboard': (context) => const DashboardPage(),
@@ -46,16 +32,5 @@ class GeoTrackApp extends StatelessWidget {
         },
       ),
     );
-  }
-
-  // NOUVELLE méthode pour vérifier l'authentification
-  Future<bool> _checkAuthentication(BuildContext context) async {
-    try {
-      final authService = Provider.of<AuthService>(context, listen: false);
-      return await authService.checkAuth();
-    } catch (e) {
-      print('❌ Error checking auth: $e');
-      return false;
-    }
   }
 }

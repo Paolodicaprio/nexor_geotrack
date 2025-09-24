@@ -1,3 +1,4 @@
+import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geotrack_frontend/services/gps_service.dart';
 import 'package:geotrack_frontend/services/sync_service.dart';
@@ -11,6 +12,19 @@ class AutoCollectService {
   static Future<void> collectGpsDataBackground() async {
     final service = AutoCollectService();
     try {
+      // VÉRIFIER SI LA LOCALISATION EST ACTIVÉE
+      final isLocationEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!isLocationEnabled) {
+        print('📍 Localisation désactivée - collecte annulée');
+        return;
+      }
+
+      // VÉRIFIER LES PERMISSIONS
+      final hasPermission = await service._gpsService.checkPermission();
+      if (!hasPermission) {
+        print('📍 Permissions de localisation refusées - collecte annulée');
+        return;
+      }
       final location = await service._gpsService.getCurrentLocation();
       await service._storageService.savePendingGpsData(location);
 
