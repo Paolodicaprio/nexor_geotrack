@@ -16,6 +16,10 @@
             android:name="com.transistorsoft.flutter.backgroundfetch.HeadlessTask"
             android:enabled="true"
             android:exported="true" />
+        <service
+            android:name="id.flutter.flutter_background_service.BackgroundService"
+            android:foregroundServiceType="location"
+            />
         
         <activity
             android:name=".MainActivity"
