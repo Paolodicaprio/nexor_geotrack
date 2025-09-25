@@ -219,42 +219,76 @@ class AuthService with ChangeNotifier {
     return dotenv.get('API_BASE_URL', fallback: Constants.apiBaseUrl);
   }
 
-  Future<bool> _isTokenValid(String token) async {
+  Future<bool> checkAuth() async {
     try {
-      final parts = token.split('.');
-      if (parts.length != 3) return false;
+      final token = await StorageService().getToken();
+      final email = await StorageService().getUserEmail();
 
-      // Decoder le payload JWT
-      final payload = json.decode(utf8.decode(base64Url.decode(parts[1])));
-      final exp = payload['exp'] as int?;
-      if (exp == null) return true; // Si pas d'expiration, considérer valide
+      print(
+        '🔐 Checking auth - Token: ${token != null ? "exists" : "null"}, Email: $email',
+      );
 
-      final expiryTime = DateTime.fromMillisecondsSinceEpoch(exp * 1000);
-      return DateTime.now().isBefore(expiryTime);
+      if (token == null || token.isEmpty || email == null || email.isEmpty) {
+        print('❌ Auth failed: Token or email missing');
+        _isAuthenticated = false;
+        _token = null;
+        _userEmail = null;
+        notifyListeners();
+        return false;
+      }
+
+      // Vérifier si le token est valide
+      if (!await _isTokenValid(token)) {
+        print('❌ Token expired or invalid');
+        await logout(); // Nettoyer les données expirées
+        return false;
+      }
+
+      // Token valide - restaurer la session
+      _token = token;
+      _userEmail = email;
+      _isAuthenticated = true;
+
+      print('✅ Auth successful - User: $email');
+      notifyListeners();
+      return true;
     } catch (e) {
+      print('❌ Error in checkAuth: $e');
+      await logout(); // Nettoyer en cas d'erreur
       return false;
     }
   }
 
-  Future<bool> checkAuth() async {
-    final token = await StorageService().getToken();
-    final email = await StorageService().getUserEmail();
-
-    if (token != null && email != null) {
-      // Vérifier si le token est encore valide
-      if (await _isTokenValid(token)) {
-        _token = token;
-        _userEmail = email;
-        _isAuthenticated = true;
-        notifyListeners();
-        return true;
-      } else {
-        // Token expiré, déconnecter l'utilisateur automatiquement
-        print('🔑 Token expiré, déconnexion automatique');
-        await logout();
+  Future<bool> _isTokenValid(String token) async {
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) {
+        print('❌ Invalid token format');
         return false;
       }
+
+      // Decoder le payload JWT (base64Url)
+      final payload = parts[1];
+      // Ajouter le padding manquant si nécessaire
+      String paddedPayload = payload.padRight((payload.length + 3) & ~3, '=');
+
+      final decoded = utf8.decode(base64Url.decode(paddedPayload));
+      final payloadMap = json.decode(decoded);
+
+      final exp = payloadMap['exp'] as int?;
+      if (exp == null) {
+        print('✅ Token has no expiration date');
+        return true; // Si pas d'expiration, considérer valide
+      }
+
+      final expiryTime = DateTime.fromMillisecondsSinceEpoch(exp * 1000);
+      final isValid = DateTime.now().isBefore(expiryTime);
+
+      print('📅 Token expiry: $expiryTime, Valid: $isValid');
+      return isValid;
+    } catch (e) {
+      print('❌ Error validating token: $e');
+      return false;
     }
-    return false;
   }
 }

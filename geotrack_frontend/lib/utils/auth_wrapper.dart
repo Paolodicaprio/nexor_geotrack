@@ -26,6 +26,8 @@ class _AuthWrapperState extends State<AuthWrapper> {
       final authService = Provider.of<AuthService>(context, listen: false);
       final authenticated = await authService.checkAuth();
 
+      print('🔐 Auth check result: $authenticated');
+
       setState(() {
         _isAuthenticated = authenticated;
         _isLoading = false;
@@ -42,7 +44,18 @@ class _AuthWrapperState extends State<AuthWrapper> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Vérification de la session...'),
+            ],
+          ),
+        ),
+      );
     }
 
     return _isAuthenticated ? const DashboardPage() : const LoginPage();

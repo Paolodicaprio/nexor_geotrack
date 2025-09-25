@@ -32,7 +32,7 @@ Future<void> initializeBackgroundService() async {
     androidConfiguration: AndroidConfiguration(
       onStart: onStart,
       autoStart: true,
-      isForegroundMode: false, // Désactivé
+      isForegroundMode: true,
     ),
     iosConfiguration: IosConfiguration(
       autoStart: true,

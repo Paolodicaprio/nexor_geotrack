@@ -53,6 +53,7 @@ class _DashboardPageState extends State<DashboardPage>
   @override
   void initState() {
     super.initState();
+    _checkBackgroundPermissions();
     _tabController = TabController(length: 2, vsync: this);
     _initIntervalsAndTimers();
     _loadStats();
@@ -60,6 +61,79 @@ class _DashboardPageState extends State<DashboardPage>
     _loadPendingData();
     _loadHistoryData();
     _startPreferencesChecker();
+  }
+
+  Future<void> _checkBackgroundPermissions() async {
+    final permission = await Geolocator.checkPermission();
+
+    // Afficher la boîte de dialogue seulement si les permissions sont insuffisantes
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.whileInUse) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showBackgroundPermissionDialog();
+      });
+    }
+  }
+
+  Future<void> _showBackgroundPermissionDialog() async {
+    // Vérifier d'abord si la localisation est activée
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      return; // Ne pas afficher la boîte si la localisation est désactivée
+    }
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Permission requise'),
+            content: const Text(
+              'Pour continuer la collecte GPS même lorsque l\'application est fermée, '
+              'vous devez autoriser l\'accès à la localisation en arrière-plan.\n\n'
+              'Cette fonctionnalité est essentielle pour le suivi continu.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  // L'utilisateur refuse - continuer sans permission background
+                },
+                child: const Text('Refuser'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  Navigator.pop(context);
+                  // Demander la permission background
+                  final bgPermission = await Geolocator.requestPermission();
+                  if (bgPermission == LocationPermission.always) {
+                    // Permission accordée
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Permission background accordée'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    }
+                  } else {
+                    // Permission refusée
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Permission background refusée - la collecte s\'arrêtera quand l\'app est fermée',
+                          ),
+                          backgroundColor: Colors.orange,
+                        ),
+                      );
+                    }
+                  }
+                },
+                child: const Text('Autoriser'),
+              ),
+            ],
+          ),
+    );
   }
 
   Future<void> _initIntervalsAndTimers() async {
@@ -173,8 +247,18 @@ class _DashboardPageState extends State<DashboardPage>
   }
 
   Future<void> _loadStats() async {
+    final prefs = await SharedPreferences.getInstance();
+    final pendingData = await _storageService.getPendingGpsData();
+    final lastCollectionString = prefs.getString('last_collection');
+
     setState(() {
-      _stats = {'pending_count': _pendingData.length, 'last_collection': null};
+      _stats = {
+        'pending_count': pendingData.length,
+        'last_collection':
+            lastCollectionString != null
+                ? DateTime.parse(lastCollectionString)
+                : null,
+      };
     });
   }
 
@@ -299,6 +383,14 @@ class _DashboardPageState extends State<DashboardPage>
 
   Future<void> _autoCollect() async {
     try {
+      // Vérifier les permissions background
+      final permission = await Geolocator.checkPermission();
+      if (permission != LocationPermission.always) {
+        print(
+          '⚠️ Mode background non autorisé - collecte limitée à l\'app ouverte',
+        );
+        // Continuer quand même la collecte pour l'app ouverte
+      }
       // Vérifier la localisation avant de collecter
       final isLocationEnabled = await Geolocator.isLocationServiceEnabled();
       if (!isLocationEnabled) {
@@ -713,7 +805,7 @@ class _DashboardPageState extends State<DashboardPage>
                             ? DateFormat(
                               'dd/MM/yyyy HH:mm',
                             ).format(_stats['last_collection'])
-                            : 'Jamais',
+                            : 'Jamais', // Ce texte devrait maintenant disparaître après première collecte
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,

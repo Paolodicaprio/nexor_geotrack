@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geotrack_frontend/pages/register_page.dart';
 import 'package:geotrack_frontend/services/gps_service.dart';
+import 'package:geotrack_frontend/services/storage_service.dart';
 import 'package:provider/provider.dart';
 import 'package:geotrack_frontend/services/auth_service.dart';
 import 'package:geotrack_frontend/pages/forgot_pin_page.dart';
@@ -293,6 +294,18 @@ class _LoginPageState extends State<LoginPage> {
       });
 
       if (result.success) {
+        print('✅ Login successful, checking token persistence...');
+
+        // Test immédiat de la persistance
+        final storedToken = await StorageService().getToken();
+        final storedEmail = await StorageService().getUserEmail();
+
+        print(
+          '🔐 Stored token after login: ${storedToken != null ? "OK" : "FAILED"}',
+        );
+        print(
+          '📧 Stored email after login: ${storedEmail != null ? "OK" : "FAILED"}',
+        );
         // VÉRIFICATION DES PERMISSIONS DE LOCALISATION APRÈS CONNEXION
         await _checkLocationPermissions();
       } else {

@@ -13,11 +13,14 @@ class StorageService {
   final String _deviceIdKey = 'device_id';
 
   Future<void> saveToken(String token) async {
+    print('💾 Saving token: ${token.substring(0, 20)}...');
     await _secureStorage.write(key: _tokenKey, value: token);
   }
 
   Future<String?> getToken() async {
-    return await _secureStorage.read(key: _tokenKey);
+    final token = await _secureStorage.read(key: _tokenKey);
+    print('💾 Retrieved token: ${token != null ? "exists" : "null"}');
+    return token;
   }
 
   Future<void> deleteToken() async {
@@ -166,9 +169,10 @@ class StorageService {
   Future<void> deleteAccessCode() async {
     await _secureStorage.delete(key: 'access_code');
   }
+
   Future<String> getOrCreateDeviceId() async {
     String? deviceId = await _secureStorage.read(key: _deviceIdKey);
-    if (deviceId == null){
+    if (deviceId == null) {
       final uuid = nanoid(10);
       deviceId = 'mobile-device-$uuid';
       await _secureStorage.write(key: _deviceIdKey, value: deviceId);
