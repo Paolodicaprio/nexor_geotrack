@@ -4,6 +4,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:geotrack_frontend/models/config_model.dart';
 import 'package:geotrack_frontend/models/gps_data_model.dart';
 import 'package:geotrack_frontend/services/api_service.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:geotrack_frontend/services/auth_service.dart';
 import 'package:geotrack_frontend/services/gps_service.dart';
@@ -40,6 +41,7 @@ class _DashboardPageState extends State<DashboardPage>
   DateTime? _nextSync;
 
   late TabController _tabController;
+  late BuildContext rootContext;
 
   int _collectInterval = 5;
   int _syncInterval = 10;
@@ -63,26 +65,35 @@ class _DashboardPageState extends State<DashboardPage>
     _startPreferencesChecker();
   }
 
-  Future<void> _checkBackgroundPermissions() async {
-    final permission = await Geolocator.checkPermission();
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    rootContext = context; // garde le contexte du widget principal
+  }
+
+  Future<void> _checkBackgroundPermissions() async {
+    print("----------------------------------");
+
+    final permission = await Geolocator.checkPermission();
+    print(permission);
     // Afficher la boîte de dialogue seulement si les permissions sont insuffisantes
     if (permission == LocationPermission.denied ||
         permission == LocationPermission.whileInUse) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _showBackgroundPermissionDialog();
+        _showBackgroundPermissionDialog(permission);
       });
     }
   }
 
-  Future<void> _showBackgroundPermissionDialog() async {
+  Future<void> _showBackgroundPermissionDialog(actualPermission) async {
     // Vérifier d'abord si la localisation est activée
     if (!await Geolocator.isLocationServiceEnabled()) {
       return; // Ne pas afficher la boîte si la localisation est désactivée
     }
-
+    // if (!mounted) return;
     await showDialog(
-      context: context,
+      context: rootContext,
       barrierDismissible: false,
       builder:
           (context) => AlertDialog(
@@ -95,20 +106,26 @@ class _DashboardPageState extends State<DashboardPage>
             actions: [
               TextButton(
                 onPressed: () {
-                  Navigator.pop(context);
+                  Navigator.of(rootContext).pop();
                   // L'utilisateur refuse - continuer sans permission background
                 },
                 child: const Text('Refuser'),
               ),
               TextButton(
                 onPressed: () async {
-                  Navigator.pop(context);
+                  Navigator.of(rootContext).pop();
                   // Demander la permission background
-                  final bgPermission = await Geolocator.requestPermission();
-                  if (bgPermission == LocationPermission.always) {
+                  final bgPermission;
+                  if (actualPermission == LocationPermission.whileInUse) {
+                     bgPermission =await Permission.locationAlways.request();
+                  }else{
+                    bgPermission = await Geolocator.requestPermission();
+                  }
+
+                  if (bgPermission == LocationPermission.always || bgPermission==PermissionStatus.granted ) {
                     // Permission accordée
                     if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      ScaffoldMessenger.of(rootContext).showSnackBar(
                         const SnackBar(
                           content: Text('Permission background accordée'),
                           backgroundColor: Colors.green,
@@ -118,7 +135,7 @@ class _DashboardPageState extends State<DashboardPage>
                   } else {
                     // Permission refusée
                     if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      ScaffoldMessenger.of(rootContext).showSnackBar(
                         const SnackBar(
                           content: Text(
                             'Permission background refusée - la collecte s\'arrêtera quand l\'app est fermée',
