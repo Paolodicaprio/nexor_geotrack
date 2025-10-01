@@ -102,16 +102,12 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       prefixIcon: Icon(Icons.email, color: _primaryGreen),
                     ),
-                    keyboardType: TextInputType.emailAddress,
+                    keyboardType: TextInputType.text,
                     validator: (value) {
                       if (value == null || value.isEmpty) {
-                        return 'Veuillez entrer votre email';
+                        return 'Veuillez entrer votre username';
                       }
-                      if (!RegExp(
-                        r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
-                      ).hasMatch(value)) {
-                        return 'Email invalide';
-                      }
+
                       return null;
                     },
                   ),
@@ -151,14 +147,13 @@ class _LoginPageState extends State<LoginPage> {
                       counterText: '',
                     ),
                     keyboardType: TextInputType.text,
-                    maxLength: 8, // Code d'accès API = 8 caractères
                     validator: (value) {
                       if (value == null || value.isEmpty) {
                         return 'Veuillez entrer votre code d\'accès';
                       }
-                      if (value.length != 8) {
-                        return 'Le code d\'accès doit contenir 8 caractères';
-                      }
+                      // if (value.length != 8) {
+                      //   return 'Le code d\'accès doit contenir 8 caractères';
+                      // }
                       return null;
                     },
                   ),
@@ -298,7 +293,7 @@ class _LoginPageState extends State<LoginPage> {
 
         // Test immédiat de la persistance
         final storedToken = await StorageService().getToken();
-        final storedEmail = await StorageService().getUserEmail();
+        final storedEmail = await StorageService().getUserUsername();
 
         print(
           '🔐 Stored token after login: ${storedToken != null ? "OK" : "FAILED"}',

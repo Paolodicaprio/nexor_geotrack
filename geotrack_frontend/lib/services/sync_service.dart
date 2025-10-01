@@ -2,6 +2,8 @@ import 'package:geotrack_frontend/models/gps_data_model.dart';
 import 'package:geotrack_frontend/services/api_service.dart';
 import 'package:geotrack_frontend/services/storage_service.dart';
 
+import 'notification_service.dart';
+
 class SyncService {
   final ApiService _apiService = ApiService();
   final StorageService _storageService = StorageService();
@@ -21,28 +23,41 @@ class SyncService {
         return;
       }
 
-      // Nouvelle liste pour les données synchronisées avec succès
       final List<GpsData> successfullySynced = [];
 
+// Filtrer et préparer les données valides
+      final List<Map<String, dynamic>> jsonList = [];
       for (final data in pendingData) {
         if (data.id == null) {
           print('❌ Failed to sync data: id is null, skipping this entry.');
           continue;
         }
+        jsonList.add(data.toApiJson());
+      }
+
+// Envoyer la liste d’un coup si elle n’est pas vide
+      if (jsonList.isNotEmpty) {
         try {
-          // Envoyer les données à l'API
-          await _apiService.sendGpsData(data);
+          await _apiService.sendGpsDataJsonList(jsonList); // <-- nouvelle méthode pour envoyer la liste
 
-          // Marquer la donnée comme synchronisée et l'ajouter à la liste
-          final syncedData = data.copyWith(synced: true);
-          successfullySynced.add(syncedData);
+          // Marquer toutes les données comme synchronisées
+          for (final data in pendingData) {
+            if (data.id != null) {
+              successfullySynced.add(data.copyWith(synced: true));
+            }
+          }
 
-          print('✅ Data synced successfully: ${data.id}');
+          print('✅ ${successfullySynced.length} data entries synced successfully.');
         } catch (e) {
-          print('❌ Failed to sync data ${data.id}: $e');
-          // Ne pas ajouter à successfullySynced en cas d'erreur
+          // Afficher la notification
+          NotificationService.showTemporaryNotification(
+            title: "Synchronisation failed",
+            content: e.toString().replaceFirst("Exception: ", ""),
+          );
+          print('❌ Failed to sync GPS data list: $e');
         }
       }
+      // _apiService.resetErrorShown();
 
       // Supprimer toutes les données synchronisées de la liste d'attente
       for (final syncedData in successfullySynced) {

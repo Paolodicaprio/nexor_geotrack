@@ -49,10 +49,9 @@ class GpsData {
   // Pour l'envoi à l'API
   Map<String, dynamic> toApiJson() {
     return {
-      'idname': deviceId,
       'latitude': lat,
       'longitude': lon,
-      'datetime': timestamp.toIso8601String(),
+      'timestamp': timestamp.toIso8601String(),
     };
   }
 

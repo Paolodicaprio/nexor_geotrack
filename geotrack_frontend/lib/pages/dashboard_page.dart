@@ -81,12 +81,12 @@ class _DashboardPageState extends State<DashboardPage>
     if (permissionResult.allGranted){
       await initializeBackgroundService();
     }else{
-      print("-----------permissions non accordé--------------------");
-      print(permissionResult.systemAlertWindow);
-      print(permissionResult.ignoreBatteryOptimizations);
-      print(permissionResult.locationWhenInUse);
-      print(permissionResult.locationAlways);
-      print(permissionResult.notification);
+      // print("-----------permissions non accordé--------------------");
+      // print(permissionResult.systemAlertWindow);
+      // print(permissionResult.ignoreBatteryOptimizations);
+      // print(permissionResult.locationWhenInUse);
+      // print(permissionResult.locationAlways);
+      // print(permissionResult.notification);
 
     }
   }

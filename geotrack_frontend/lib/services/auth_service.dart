@@ -23,7 +23,7 @@ class AuthService with ChangeNotifier {
   DateTime? get blockUntil => _blockUntil;
   String? get userEmail => _userEmail;
 
-  Future<LoginResponse> login(String email, String accessCode) async {
+  Future<LoginResponse> login(String username, String password) async {
     if (isBlocked()) {
       return LoginResponse(
         success: false,
@@ -46,8 +46,16 @@ class AuthService with ChangeNotifier {
 
       // Utiliser les paramètres query comme spécifié dans l'API
       final uri = Uri.parse(
-        '$apiUrl/auth/login',
-      ).replace(queryParameters: {'email': email, 'access_code': accessCode});
+        '$apiUrl/web/session/authenticate');
+      final body =
+        {
+          "jsonrpc": "2.0",
+          "params": {
+            "db": "nexor-dev-24173695",
+            "login": username,
+            "password": password
+          }
+        };
 
       final response = await http
           .post(
@@ -56,22 +64,44 @@ class AuthService with ChangeNotifier {
               'Content-Type': 'application/json',
               'Accept': 'application/json',
             },
+        body: json.encode(body)
           )
-          .timeout(const Duration(seconds: 30));
+          .timeout(const Duration(seconds: 40));
+      print("------------------------------------------");
+      print(response.body);
+      print(response.statusCode);
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        _token = data['access_token'];
-        _isAuthenticated = true;
-        _failedAttempts = 0;
-        _blockUntil = null;
-        _userEmail = email;
+        // verifier que la connexion a marché
+        if (data["result"]!=null && data["result"]["partner_id"]!=null) {
+          final rawCookie = response.headers['set-cookie'];
+          if (rawCookie != null) {
+            print("Cookie reçu : $rawCookie");
 
-        await StorageService().saveToken(_token!);
-        await StorageService().saveUserEmail(email);
-        notifyListeners();
+            _token = rawCookie;
+            _isAuthenticated = true;
+            _failedAttempts = 0;
+            _blockUntil = null;
+            _userEmail = username;
 
-        return LoginResponse(success: true, token: _token);
+            await StorageService().saveToken(_token!);
+            await StorageService().saveUserUsername(username);
+            notifyListeners();
+
+            return LoginResponse(success: true, token: _token);
+          }else{
+            return LoginResponse(
+              success: false,
+              error: 'Erreur de connexion: Cookie non trouvé',
+            );
+          }
+        }
+        print('reponse apres login : ${response.body}  - ${response.statusCode}');
+        return LoginResponse(
+          success: false,
+          error: 'Erreur de connexion: Login ou mot de passe incorrect',
+        );
       } else if (response.statusCode == 401) {
         _handleFailedAttempt();
         return LoginResponse(
@@ -169,7 +199,7 @@ class AuthService with ChangeNotifier {
     _blockUntil = null;
     _userEmail = null;
     final store = StorageService();
-    await store.deleteUserEmail();
+    await store.deleteUserUsername();
     await store.clearAllData();
     notifyListeners();
   }
@@ -201,13 +231,15 @@ class AuthService with ChangeNotifier {
         };
       }
     } catch (e) {
+      print("------------------errror-------------");
+      print(e);
       return {'success': false, 'message': 'Erreur de connexion: $e'};
     }
   }
 
   void setUserEmail(String email) {
     _userEmail = email;
-    StorageService().saveUserEmail(email);
+    StorageService().saveUserUsername(email);
     notifyListeners();
   }
 
@@ -222,7 +254,7 @@ class AuthService with ChangeNotifier {
   Future<bool> checkAuth() async {
     try {
       final token = await StorageService().getToken();
-      final email = await StorageService().getUserEmail();
+      final email = await StorageService().getUserUsername();
 
       print(
         '🔐 Checking auth - Token: ${token != null ? "exists" : "null"}, Email: $email',
@@ -238,11 +270,11 @@ class AuthService with ChangeNotifier {
       }
 
       // Vérifier si le token est valide
-      if (!await _isTokenValid(token)) {
-        print('❌ Token expired or invalid');
-        await logout(); // Nettoyer les données expirées
-        return false;
-      }
+      // if (!await _isTokenValid(token)) {
+      //   print('❌ Token expired or invalid');
+      //   await logout(); // Nettoyer les données expirées
+      //   return false;
+      // }
 
       // Token valide - restaurer la session
       _token = token;

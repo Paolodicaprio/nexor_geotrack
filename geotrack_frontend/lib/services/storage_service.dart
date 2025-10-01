@@ -6,7 +6,7 @@ import 'package:nanoid/nanoid.dart';
 
 class StorageService {
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
-  final String _tokenKey = 'auth_token';
+  final String _cookieKey = 'auth_token';
   final String _pendingDataKey = 'pending_gps_data';
   final String _syncedDataKey = 'synced_gps_data';
   final String _customApiUrlKey = 'custom_api_url';
@@ -14,17 +14,17 @@ class StorageService {
 
   Future<void> saveToken(String token) async {
     print('💾 Saving token: ${token.substring(0, 20)}...');
-    await _secureStorage.write(key: _tokenKey, value: token);
+    await _secureStorage.write(key: _cookieKey, value: token);
   }
 
   Future<String?> getToken() async {
-    final token = await _secureStorage.read(key: _tokenKey);
+    final token = await _secureStorage.read(key: _cookieKey);
     print('💾 Retrieved token: ${token != null ? "exists" : "null"}');
     return token;
   }
 
   Future<void> deleteToken() async {
-    await _secureStorage.delete(key: _tokenKey);
+    await _secureStorage.delete(key: _cookieKey);
   }
 
   Future<void> savePendingGpsData(GpsData data) async {
@@ -146,38 +146,42 @@ class StorageService {
     await prefs.remove(_customApiUrlKey);
   }
 
-  Future<void> saveUserEmail(String email) async {
-    await _secureStorage.write(key: 'user_email', value: email);
+  Future<void> saveUserUsername(String username) async {
+    await _secureStorage.write(key: 'user_username', value: username);
   }
 
-  Future<String?> getUserEmail() async {
-    return await _secureStorage.read(key: 'user_email');
+  Future<String?> getUserUsername() async {
+    return await _secureStorage.read(key: 'user_username');
   }
 
-  Future<void> deleteUserEmail() async {
-    await _secureStorage.delete(key: 'user_email');
+  Future<void> deleteUserUsername() async {
+    await _secureStorage.delete(key: 'user_username');
   }
 
-  Future<void> saveAccessCode(String accessCode) async {
-    await _secureStorage.write(key: 'access_code', value: accessCode);
+  Future<void> savePassword(String password) async {
+    await _secureStorage.write(key: 'password', value: password);
   }
 
-  Future<String?> getAccessCode() async {
-    return await _secureStorage.read(key: 'access_code');
+  Future<String?> getPassword() async {
+    return await _secureStorage.read(key: 'password');
   }
 
-  Future<void> deleteAccessCode() async {
-    await _secureStorage.delete(key: 'access_code');
+  Future<void> deletePassword() async {
+    await _secureStorage.delete(key: 'password');
   }
 
   Future<String> getOrCreateDeviceId() async {
     String? deviceId = await _secureStorage.read(key: _deviceIdKey);
     if (deviceId == null) {
       final uuid = nanoid(10);
-      deviceId = 'mobile-device-$uuid';
+      deviceId = uuid;
       await _secureStorage.write(key: _deviceIdKey, value: deviceId);
     }
     return deviceId;
+  }
+
+  Future<void> saveDeviceId(String deviceId) async {
+    await _secureStorage.write(key: _deviceIdKey, value: deviceId);
   }
 
   Future<void> deleteDeviceId() async {

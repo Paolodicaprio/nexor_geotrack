@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:geotrack_frontend/services/notification_service.dart';
 import 'package:http/http.dart' as http;
 import 'package:geotrack_frontend/models/config_model.dart';
 import 'package:geotrack_frontend/models/gps_data_model.dart';
@@ -17,12 +18,16 @@ class ApiService {
   }
 
   Future<Map<String, String>> _getHeaders() async {
-    final token = await StorageService().getToken();
+    var rawCookie = await StorageService().getToken();
+    if (rawCookie!=null){
+      rawCookie = rawCookie.split(';').first;
+    }
     return {
       'Content-Type': 'application/json',
-      'Authorization': 'Bearer $token',
+      "Cookie": rawCookie ?? "",
     };
   }
+
 
   Future<bool> testConnection() async {
     try {
@@ -40,7 +45,7 @@ class ApiService {
       final headers = await _getHeaders();
 
       final response = await http
-          .get(Uri.parse('$apiUrl/time-config'), headers: headers)
+          .get(Uri.parse('$apiUrl/transport_tracking/config'), headers: headers)
           .timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 200) {
@@ -53,8 +58,8 @@ class ApiService {
       }else if(response.statusCode == 404 ){
         // créer une config par defaut
         final defaultConfig = {
-          "collection_interval": 300,
-          "send_interval": 600
+          "position_sampling_interval": 300,
+          "position_sync_interval": 600
         };
         final config = await createConfig(defaultConfig);
         return config;
@@ -75,25 +80,81 @@ class ApiService {
     try {
       final apiUrl = await getApiUrl();
       final headers = await _getHeaders();
-
-      final response = await http.post(
-        Uri.parse('$apiUrl/location'),
-        headers: headers,
-        body: json.encode(data.toApiJson()), // Utiliser le format API
-      );
+      final deviceCode = await StorageService().getOrCreateDeviceId();
+      final body = jsonEncode({
+        "positions": [
+         data.toApiJson()
+        ]
+      });
+      final url = Uri.parse('$apiUrl/transport_tracking/$deviceCode/positions');
+      print(url);
+      print(headers);
+      print('body :::::$body');
+      final response = await http.post(url, headers: headers, body: body );
 
       if (response.statusCode == 200) {
+        print(response.body);
         final responseData = json.decode(response.body);
         return GpsData.fromJson(responseData);
       } else {
+        print('Failed to send GPS data: ${response.statusCode} - ${response.body}');
         throw Exception(
           'Failed to send GPS data: ${response.statusCode} - ${response.body}',
         );
       }
     } catch (e) {
+
+      print('Failed to send GPS data surveillé: $e');
+
       throw Exception('Failed to send GPS data: $e');
     }
   }
+
+  Future<void> sendGpsDataJsonList(List<Map<String, dynamic>> data) async {
+    try {
+      final apiUrl = await getApiUrl();
+      final headers = await _getHeaders();
+      final deviceCode = await StorageService().getOrCreateDeviceId();
+      final body = jsonEncode({"positions": data});
+      final url = Uri.parse('$apiUrl/transport_tracking/$deviceCode/positions');
+
+      print(url);
+      print(headers);
+      print('body :::::$body');
+
+      final response = await http.post(url, headers: headers, body: body);
+
+      if (response.statusCode == 200) {
+        print('✅ GPS data synced successfully: ${response.body}');
+        return; // tout est OK
+      }
+
+      // Gestion des erreurs
+      String errorMessage = 'Erreur inconnue';
+      try {
+        final Map<String, dynamic> responseData = jsonDecode(response.body);
+        if (responseData.containsKey('message')) {
+          errorMessage = responseData['message'];
+        } else if (responseData.containsKey('status')) {
+          errorMessage = 'Status: ${responseData['status']}';
+        } else {
+          errorMessage = response.body; // fallback
+        }
+      } catch (_) {
+        errorMessage = 'Failed to send GPS data: ${response.statusCode} - ${response.body}';
+      }
+      // Lever l’exception si nécessaire
+      throw Exception(errorMessage);
+
+    } catch (e) {
+      print('❌ Failed to send GPS data: $e');
+      rethrow; // pour que l’appelant puisse gérer aussi
+    }
+  }
+
+
+
+
 
   Future<List<GpsData>> getGpsData({
     String? deviceId,
@@ -133,11 +194,11 @@ class ApiService {
       final apiUrl = await getApiUrl();
       final headers = await _getHeaders();
 
-      print('🔄 PUT Request to: $apiUrl/time-config');
+      print('🔄 PUT Request to: $apiUrl/transport_tracking/config');
       print('📦 Payload: $updates');
 
       final response = await http.put(
-        Uri.parse('$apiUrl/time-config'),
+        Uri.parse('$apiUrl/transport_tracking/config'),
         headers: headers,
         body: json.encode(updates),
       );
@@ -164,11 +225,11 @@ class ApiService {
       final apiUrl = await getApiUrl();
       final headers = await _getHeaders();
 
-      print('🔄 POST Request to: $apiUrl/time-config');
+      print('🔄 POST Request to: $apiUrl/transport_tracking/config');
       print('📦 Payload: $config');
 
       final response = await http.post(
-        Uri.parse('$apiUrl/time-config'),
+        Uri.parse('$apiUrl/transport_tracking/config'),
         headers: headers,
         body: json.encode(config),
       );

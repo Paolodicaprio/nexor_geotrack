@@ -14,10 +14,10 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  final TextEditingController _collectIntervalController =
-      TextEditingController();
+  final TextEditingController _collectIntervalController =TextEditingController();
   final TextEditingController _syncIntervalController = TextEditingController();
   final TextEditingController _apiUrlController = TextEditingController();
+  final TextEditingController _deviceCodeController = TextEditingController();
 
   final _settingsFormKey = GlobalKey<FormState>();
   final _apiFormKey = GlobalKey<FormState>();
@@ -63,8 +63,10 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _loadApiUrl() async {
     final apiUrl = await ApiService.getApiUrl();
+    final deviceCode = await StorageService().getOrCreateDeviceId();
     setState(() {
       _apiUrlController.text = apiUrl;
+      _deviceCodeController.text = deviceCode;
     });
   }
 
@@ -119,16 +121,17 @@ class _SettingsPageState extends State<SettingsPage> {
     Navigator.pushReplacementNamed(context, '/login');
   }
 
-  Future<void> _changeApiUrl() async {
+  Future<void> _changeApiSetting() async {
     if (_apiFormKey.currentState!.validate()) {
       await StorageService().saveCustomUrl(_apiUrlController.text);
+      await StorageService().saveDeviceId(_deviceCodeController.text);
       setState(() {
         _showApiSection = false;
       });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('URL modifiée avec succès'),
+          content: Text('Paramètres modifiée avec succès'),
           backgroundColor: Colors.green,
         ),
       );
@@ -320,12 +323,29 @@ class _SettingsPageState extends State<SettingsPage> {
                               },
                             ),
                             const SizedBox(height: 16),
+                            TextFormField(
+                              controller: _deviceCodeController,
+                              decoration: const InputDecoration(
+                                labelText: 'Votre Device code',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.numbers),
+                                hintText: 'abcd123',
+                              ),
+                              keyboardType: TextInputType.text,
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return 'Veuillez entrer un device code';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 16),
                             SizedBox(
                               width: double.infinity,
                               child: ElevatedButton.icon(
                                 icon: const Icon(Icons.update),
-                                label: const Text('Modifier l\'URL'),
-                                onPressed: _changeApiUrl,
+                                label: const Text('Enregistrer les paramètres'),
+                                onPressed: _changeApiSetting,
                                 style: ElevatedButton.styleFrom(
                                   padding: const EdgeInsets.symmetric(
                                     vertical: 16,
