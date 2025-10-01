@@ -28,7 +28,7 @@ class NotificationService {
       CHANNEL_ID,
       'GeoTrack Service',
       description: 'Canal pour les notifications du service GeoTrack',
-      importance: Importance.low, // Importance faible pour éviter les interruptions
+      importance: Importance.defaultImportance,
       playSound: false,
       enableVibration: false,
       showBadge: false,
@@ -50,8 +50,8 @@ class NotificationService {
       CHANNEL_ID,
       'GeoTrack Service',
       channelDescription: 'Service de collecte GPS en arrière-plan',
-      importance: Importance.low,
-      priority: Priority.low,
+      importance: Importance.defaultImportance,
+      priority: Priority.defaultPriority  ,
       ongoing: true, // Notification persistante
       autoCancel: false,
       playSound: false,
