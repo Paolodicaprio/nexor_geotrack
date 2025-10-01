@@ -4,6 +4,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:geotrack_frontend/models/config_model.dart';
 import 'package:geotrack_frontend/models/gps_data_model.dart';
 import 'package:geotrack_frontend/services/api_service.dart';
+import 'package:geotrack_frontend/services/permissions_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:geotrack_frontend/services/auth_service.dart';
@@ -15,6 +16,8 @@ import 'package:geotrack_frontend/pages/settings_page.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geotrack_frontend/services/auto_collect_service.dart';
+
+import '../services/background_service.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({Key? key}) : super(key: key);
@@ -53,7 +56,7 @@ class _DashboardPageState extends State<DashboardPage>
   bool _historyLoading = true;
 
   @override
-  void initState() {
+  void initState(){
     super.initState();
     _checkBackgroundPermissions();
     _tabController = TabController(length: 2, vsync: this);
@@ -63,6 +66,7 @@ class _DashboardPageState extends State<DashboardPage>
     _loadPendingData();
     _loadHistoryData();
     _startPreferencesChecker();
+    _initBackgroundService();
   }
 
 
@@ -72,8 +76,22 @@ class _DashboardPageState extends State<DashboardPage>
     rootContext = context; // garde le contexte du widget principal
   }
 
+  Future<void> _initBackgroundService() async{
+    PermissionResult permissionResult = await requestPermissions();
+    if (permissionResult.allGranted){
+      await initializeBackgroundService();
+    }else{
+      print("-----------permissions non accordé--------------------");
+      print(permissionResult.systemAlertWindow);
+      print(permissionResult.ignoreBatteryOptimizations);
+      print(permissionResult.locationWhenInUse);
+      print(permissionResult.locationAlways);
+      print(permissionResult.notification);
+
+    }
+  }
+
   Future<void> _checkBackgroundPermissions() async {
-    print("----------------------------------");
 
     final permission = await Geolocator.checkPermission();
     print(permission);
@@ -91,7 +109,7 @@ class _DashboardPageState extends State<DashboardPage>
     if (!await Geolocator.isLocationServiceEnabled()) {
       return; // Ne pas afficher la boîte si la localisation est désactivée
     }
-    // if (!mounted) return;
+    if (!mounted) return;
     await showDialog(
       context: rootContext,
       barrierDismissible: false,
