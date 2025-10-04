@@ -12,7 +12,7 @@
 
 
     <application
-        android:label="geotrack_frontend"
+        android:label="Geotrack Mobile"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         

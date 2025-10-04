@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:geotrack_frontend/utils/constants.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'auto_collect_service.dart';
@@ -90,7 +91,7 @@ void startPeriodicTasks(ServiceInstance service) async {
   final prefs = await SharedPreferences.getInstance();
 
   // Timer pour la collecte GPS (intervalle configuré)
-  Timer.periodic(Duration(minutes: prefs.getInt('collect_interval') ?? 5), (timer) async {
+  Timer.periodic(Duration(minutes: prefs.getInt('collect_interval') ?? Constants.defaultCollectionInterval), (timer) async {
     if (service is AndroidServiceInstance) {
       if (await service.isForegroundService()) {
         await AutoCollectService.collectGpsDataBackground();
@@ -111,7 +112,7 @@ void startPeriodicTasks(ServiceInstance service) async {
   });
 
   // Timer pour la synchronisation (intervalle configuré)
-  Timer.periodic(Duration(minutes: prefs.getInt('sync_interval') ?? 10), (
+  Timer.periodic(Duration(minutes: prefs.getInt('sync_interval') ?? Constants.defaultSendInterval), (
       timer,
       ) async {
     await AutoCollectService.syncGpsDataBackground();
@@ -123,6 +124,22 @@ void startPeriodicTasks(ServiceInstance service) async {
         title: "GeoTrack Service",
         content:
         "Dernière sync: ${DateTime.now().toString().substring(11, 16)}",
+      );
+    }
+  });
+
+  // Timer pour la synchronisation de config
+  Timer.periodic(Duration(minutes: prefs.getInt('config_sync_interval') ?? Constants.defaultConfigSyncInterval), (
+      timer,
+      ) async {
+    await AutoCollectService.refetchConfig();
+    // Mettre à jour la notification après synchronisation
+    if (service is AndroidServiceInstance &&
+        await service.isForegroundService()) {
+      NotificationService.showPersistentNotification(
+        title: "GeoTrack Service",
+        content:
+        "Dernière Synchronisation de config: ${DateTime.now().toString().substring(11, 16)}",
       );
     }
   });

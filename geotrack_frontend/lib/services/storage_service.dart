@@ -230,8 +230,8 @@ class StorageService {
   // configSyncInterval est deja en minute donc pas besoin de conversion
   Future<void> saveConfig(Config config) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt("collect_interval", config.collectionInterval ~/ 60);
-    await prefs.setInt("sync_interval", config.sendInterval ~/ 60);
+    await prefs.setInt("collect_interval", config.collectionInterval);
+    await prefs.setInt("sync_interval", config.sendInterval);
     await prefs.setInt("config_sync_interval",config.configSyncInterval);
   }
 

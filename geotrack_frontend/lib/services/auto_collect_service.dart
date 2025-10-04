@@ -1,4 +1,5 @@
 import 'package:geolocator/geolocator.dart';
+import 'package:geotrack_frontend/services/api_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geotrack_frontend/services/gps_service.dart';
 import 'package:geotrack_frontend/services/sync_service.dart';
@@ -73,5 +74,10 @@ class AutoCollectService {
       'next_collection': DateTime.now().add(const Duration(minutes: 5)),
       'next_sync': DateTime.now().add(const Duration(minutes: 10)),
     };
+  }
+
+  static Future<void> refetchConfig()async{
+    final config = await ApiService().getConfig();
+    await StorageService().saveConfig(config);
   }
 }

@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 import 'package:geotrack_frontend/services/auth_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../utils/constants.dart';
+
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
 
@@ -16,6 +18,7 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   final TextEditingController _collectIntervalController =TextEditingController();
   final TextEditingController _syncIntervalController = TextEditingController();
+  final TextEditingController _configSyncIntervalController = TextEditingController();
   final TextEditingController _apiUrlController = TextEditingController();
   final TextEditingController _deviceCodeController = TextEditingController();
   final TextEditingController _databaseNameController = TextEditingController();
@@ -42,20 +45,22 @@ class _SettingsPageState extends State<SettingsPage> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt('collect_interval', config.collectionInterval ~/ 60);
       await prefs.setInt('sync_interval', config.sendInterval ~/ 60);
+      await prefs.setInt('config_sync_interval', config.configSyncInterval);
 
       setState(() {
-        _collectIntervalController.text =
-            (config.collectionInterval ~/ 60).toString();
-        _syncIntervalController.text = (config.sendInterval ~/ 60).toString();
+        _collectIntervalController.text = config.collectionInterval.toString();
+        _syncIntervalController.text = config.sendInterval.toString();
+        _configSyncIntervalController.text = config.configSyncInterval.toString();
       });
     } catch (e) {
       // En cas d'erreur, charger depuis SharedPreferences
       final prefs = await SharedPreferences.getInstance();
       setState(() {
         _collectIntervalController.text =
-            (prefs.getInt('collect_interval') ?? 5).toString();
+            (prefs.getInt('collect_interval') ?? Constants.defaultCollectionInterval).toString();
         _syncIntervalController.text =
-            (prefs.getInt('sync_interval') ?? 10).toString();
+            (prefs.getInt('sync_interval') ?? Constants.defaultSendInterval).toString();
+        _configSyncIntervalController.text =(prefs.getInt('config_sync_interval')?? Constants.defaultSendInterval).toString();
       });
     } finally {
       setState(() => _configLoading = false);
@@ -73,48 +78,33 @@ class _SettingsPageState extends State<SettingsPage> {
     });
   }
 
-  Future<void> _saveSettings() async {
-    if (_settingsFormKey.currentState!.validate()) {
-      final collectInterval =
-          int.parse(_collectIntervalController.text) *
-          60; // Convertir en secondes
-      final syncInterval =
-          int.parse(_syncIntervalController.text) * 60; // Convertir en secondes
-
+  Future<void> _refetchSettings() async {
       try {
         final apiService = ApiService();
-
-        // Utiliser les bons noms de paramètres pour l'API
-        final updatedConfig = await apiService.updateConfig({
-          'collection_interval': collectInterval,
-          'send_interval': syncInterval,
-        });
-
+        final newConfig = await apiService.getConfig();
         final prefs = await SharedPreferences.getInstance();
         await prefs.setInt(
           'collect_interval',
-          updatedConfig.collectionInterval ~/ 60,
+          newConfig.collectionInterval ~/ 60,
         );
-        await prefs.setInt('sync_interval', updatedConfig.sendInterval ~/ 60);
-
+        await prefs.setInt('sync_interval', newConfig.sendInterval ~/ 60);
+        await prefs.setInt('config_sync_interval', newConfig.configSyncInterval);
         if (!mounted) return;
-        Navigator.pop(context, true);
-
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Paramètres sauvegardés avec succès'),
+            content: Text('Configurations recupéré  avec succès'),
             backgroundColor: Colors.green,
           ),
         );
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Erreur lors de la sauvegarde: $e'),
+            content: Text('Erreur lors de la recuperation: $e'),
             backgroundColor: Colors.red,
           ),
         );
       }
-    }
+
   }
 
   Future<void> _logout() async {
@@ -124,21 +114,21 @@ class _SettingsPageState extends State<SettingsPage> {
     Navigator.pushReplacementNamed(context, '/login');
   }
 
-  Future<void> _changeApiSetting() async {
-    if (_apiFormKey.currentState!.validate()) {
-      await StorageService().saveCustomUrl(_apiUrlController.text);
-      setState(() {
-        _showApiSection = false;
-      });
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Paramètres modifiée avec succès'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    }
-  }
+  // Future<void> _changeApiSetting() async {
+  //   if (_apiFormKey.currentState!.validate()) {
+  //     await StorageService().saveCustomUrl(_apiUrlController.text);
+  //     setState(() {
+  //       _showApiSection = false;
+  //     });
+  //     if (!mounted) return;
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       const SnackBar(
+  //         content: Text('Paramètres modifiée avec succès'),
+  //         backgroundColor: Colors.green,
+  //       ),
+  //     );
+  //   }
+  // }
 
   Future<void> showConfirmDialog()async{
     await showDialog(
@@ -235,29 +225,33 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                       const SizedBox(height: 16),
                       TextFormField(
+                        enabled: false,
                         controller: _collectIntervalController,
                         decoration: const InputDecoration(
-                          labelText: 'Intervalle de collecte (minutes)',
+                          labelText: 'Intervalle de collecte (secondes)',
                           border: OutlineInputBorder(),
                           prefixIcon: Icon(Icons.gps_fixed),
                         ),
                         keyboardType: TextInputType.number,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Veuillez entrer un intervalle';
-                          }
-                          final val = int.tryParse(value);
-                          if (val == null || val < 1) {
-                            return 'Intervalle invalide (min. 1 minute)';
-                          }
-                          return null;
-                        },
+
                       ),
                       const SizedBox(height: 16),
                       TextFormField(
                         controller: _syncIntervalController,
+                        enabled: false,
                         decoration: const InputDecoration(
-                          labelText: 'Intervalle de synchronisation (minutes)',
+                          labelText: 'Intervalle de synchronisation (secondes)',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.sync),
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _configSyncIntervalController,
+                        enabled: false,
+                        decoration: const InputDecoration(
+                          labelText: 'synchronisation de la configuration (minutes)',
                           border: OutlineInputBorder(),
                           prefixIcon: Icon(Icons.sync),
                         ),
@@ -277,14 +271,14 @@ class _SettingsPageState extends State<SettingsPage> {
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
-                          icon: const Icon(Icons.save),
+                          icon: const Icon(Icons.update),
                           label:
                               _configLoading
                                   ? const CircularProgressIndicator(
                                     color: Colors.white,
                                   )
-                                  : const Text('Sauvegarder les paramètres'),
-                          onPressed: _configLoading ? null : _saveSettings,
+                                  : const Text('Recharger les configurations'),
+                          onPressed: _configLoading ? null : _refetchSettings,
                           style: ElevatedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             backgroundColor: Colors.green,

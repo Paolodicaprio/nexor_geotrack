@@ -39,15 +39,20 @@ class _DashboardPageState extends State<DashboardPage>
   Timer? _syncTimer;
   Timer? _statsTimer;
   Timer? _prefsCheckTimer;
+  Timer? _configSyncTimer;
+
 
   DateTime? _nextCollection;
   DateTime? _nextSync;
+  DateTime? _nextConfigSync;
 
   late TabController _tabController;
   late BuildContext rootContext;
 
   int _collectInterval = 5;
   int _syncInterval = 10;
+  int _configSyncInterval = 60; // Valeur par défaut en minutes
+
 
   // Ajout des variables d'état pour les données
   List<GpsData> _pendingData = [];
@@ -175,6 +180,7 @@ class _DashboardPageState extends State<DashboardPage>
     final collectInterval =
         _currentConfig?.collectionInterval ?? 300; // Secondes
     final syncInterval = _currentConfig?.sendInterval ?? 600; // Secondes
+    final configSyncInterval = _currentConfig?.configSyncInterval ?? 60; // Minutes
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(
@@ -185,13 +191,16 @@ class _DashboardPageState extends State<DashboardPage>
       'sync_interval',
       syncInterval ~/ 60,
     ); // Convertir en minutes
+    await prefs.setInt('config_sync_interval', configSyncInterval);
 
     setState(() {
       _collectInterval =
           collectInterval ~/ 60; // Stocker en minutes pour l'interface
       _syncInterval = syncInterval ~/ 60; // Stocker en minutes pour l'interface
+      _configSyncInterval = configSyncInterval; // deja en minutes
       _nextCollection = DateTime.now().add(Duration(minutes: _collectInterval));
       _nextSync = DateTime.now().add(Duration(minutes: _syncInterval));
+      _nextConfigSync = DateTime.now().add(Duration(minutes: _configSyncInterval));
     });
 
     // Première collecte dès l'ouverture
@@ -201,6 +210,7 @@ class _DashboardPageState extends State<DashboardPage>
     _startAutoCollect();
     _startAutoSync();
     _startStatsTimer();
+    _startConfigSync();
   }
 
   Future<void> _loadConfig() async {
@@ -212,15 +222,18 @@ class _DashboardPageState extends State<DashboardPage>
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt('collect_interval', config.collectionInterval ~/ 60);
       await prefs.setInt('sync_interval', config.sendInterval ~/ 60);
+      await prefs.setInt('config_sync_interval', config.configSyncInterval);
 
       setState(() {
         _currentConfig = config;
         _collectInterval = config.collectionInterval ~/ 60;
         _syncInterval = config.sendInterval ~/ 60;
+        _configSyncInterval=config.configSyncInterval;
         _nextCollection = DateTime.now().add(
           Duration(minutes: _collectInterval),
         );
         _nextSync = DateTime.now().add(Duration(minutes: _syncInterval));
+        _nextConfigSync =DateTime.now().add(Duration(minutes: _configSyncInterval));
       });
 
       _restartTimersWithNewIntervals();
@@ -272,6 +285,7 @@ class _DashboardPageState extends State<DashboardPage>
     setState(() {
       _collectInterval = prefs.getInt('collect_interval') ?? 5;
       _syncInterval = prefs.getInt('sync_interval') ?? 10;
+      _configSyncInterval = prefs.getInt('config_sync_interval') ?? 60;
     });
   }
 
@@ -331,6 +345,7 @@ class _DashboardPageState extends State<DashboardPage>
     _syncTimer?.cancel();
     _statsTimer?.cancel();
     _prefsCheckTimer?.cancel();
+    _configSyncTimer?.cancel();
     _tabController.dispose();
     super.dispose();
   }
@@ -392,21 +407,42 @@ class _DashboardPageState extends State<DashboardPage>
     });
   }
 
+  void _startConfigSync() {
+    _configSyncTimer?.cancel(); // annule si déjà existant
+
+    _configSyncTimer = Timer.periodic(
+      Duration(minutes: _configSyncInterval),
+          (timer) async {
+        print('🔁 Rafraîchissement automatique de la configuration...');
+        await _loadConfig(); // recharge la config depuis le serveur
+        setState(() {
+          _nextConfigSync = DateTime.now().add(
+            Duration(minutes: _configSyncInterval),
+          );
+        });
+      },
+    );
+  }
+
   Future<void> _restartTimersWithNewIntervals() async {
     // D'abord charger les nouveaux intervalles depuis SharedPreferences
     await _loadIntervals();
 
     _collectTimer?.cancel();
     _syncTimer?.cancel();
+    _configSyncTimer?.cancel();
 
     // Redémarrer les timers avec les nouveaux intervalles
     _startAutoCollect();
     _startAutoSync();
+    _startConfigSync();
 
     // Mettre à jour l'interface
     setState(() {
       _nextCollection = DateTime.now().add(Duration(minutes: _collectInterval));
       _nextSync = DateTime.now().add(Duration(minutes: _syncInterval));
+      _nextConfigSync = DateTime.now().add(Duration(minutes: _configSyncInterval));
+
     });
   }
 
@@ -785,26 +821,65 @@ class _DashboardPageState extends State<DashboardPage>
                   ],
                 ),
                 const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    _buildStatCard(
-                      '📦 En attente',
-                      '${_stats['pending_count'] ?? 0}',
-                      Colors.orange,
-                    ),
-                    _buildStatCard(
-                      '⏰ Prochaine collecte',
-                      _formatCountdown(_nextCollection),
-                      Colors.blue,
-                    ),
-                    _buildStatCard(
-                      '🔄 Prochaine sync',
-                      _formatCountdown(_nextSync),
-                      Colors.green,
-                    ),
-                  ],
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(), // effet rebond iOS
+                  child: Row(
+                      children: [
+                        _buildStatCard(
+                          '📦 En attente',
+                          '${_stats['pending_count'] ?? 0}',
+                          Colors.orange,
+                        ),
+                        _buildStatCard(
+                          '⏰ Prochaine collecte',
+                          _formatCountdown(_nextCollection),
+                          Colors.blue,
+                        ),
+                        _buildStatCard(
+                          '🔄 Prochaine sync',
+                          _formatCountdown(_nextSync),
+                          Colors.green,
+                        ),
+                        _buildStatCard(
+                            '⚙️ Prochaine config',
+                            _formatCountdown(_nextConfigSync),
+                            Colors.purple
+                        ),
+                      ].map((card) => Padding(
+                      padding: const EdgeInsets.only(right: 10.0),
+                      child: card,
+                    )).toList(),
+                  ),
                 ),
+                // SizedBox(
+                //   height: 140, // hauteur fixe pour les cards
+                //   child: ListView(
+                //     scrollDirection: Axis.horizontal,
+                //     children: [
+                //       _buildStatCard(
+                //         '📦 En attente',
+                //         '${_stats['pending_count'] ?? 0}',
+                //         Colors.orange,
+                //       ),
+                //       _buildStatCard(
+                //         '⏰ Prochaine collecte',
+                //         _formatCountdown(_nextCollection),
+                //         Colors.blue,
+                //       ),
+                //       _buildStatCard(
+                //         '🔄 Prochaine sync',
+                //         _formatCountdown(_nextSync),
+                //         Colors.green,
+                //       ),
+                //       _buildStatCard(
+                //           '⚙️ Prochaine config',
+                //           _formatCountdown(_nextConfigSync),
+                //           Colors.purple
+                //       ),
+                //     ],
+                //   ),
+                // ),
               ],
             ),
           ),
