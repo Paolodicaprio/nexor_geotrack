@@ -1,6 +1,8 @@
+import 'package:flutter/material.dart';
 import 'package:geotrack_frontend/models/gps_data_model.dart';
 import 'package:geotrack_frontend/services/api_service.dart';
 import 'package:geotrack_frontend/services/storage_service.dart';
+import 'package:geotrack_frontend/utils/global_keys.dart';
 
 import 'notification_service.dart';
 
@@ -49,11 +51,16 @@ class SyncService {
 
           print('✅ ${successfullySynced.length} data entries synced successfully.');
         } catch (e) {
-          // Afficher la notification
-          NotificationService.showTemporaryNotification(
-            title: "Synchronisation failed",
-            content: e.toString().replaceFirst("Exception: ", ""),
-          );
+          // // Afficher la notification
+          // NotificationService.showTemporaryNotification(
+          //   title: "Synchronisation failed",
+          //   content: e.toString().replaceFirst("Exception: ", ""),
+          // );
+          scaffoldMessengerKey.currentState?.showSnackBar(SnackBar(
+            content: Text(e.toString()),
+            backgroundColor: Colors.redAccent,
+            duration: const Duration(seconds: 5),
+          ));
           print('❌ Failed to sync GPS data list: $e');
         }
       }

@@ -7,6 +7,8 @@ import 'package:provider/provider.dart';
 import 'package:geotrack_frontend/services/auth_service.dart';
 import 'package:geotrack_frontend/pages/forgot_pin_page.dart';
 
+import '../utils/db_name_extractor.dart';
+
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
@@ -17,6 +19,10 @@ class LoginPage extends StatefulWidget {
 class _LoginPageState extends State<LoginPage> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _pinController = TextEditingController();
+  final TextEditingController _apiUrlController = TextEditingController();
+  final TextEditingController _databaseNameController = TextEditingController();
+  final FocusNode apiFocusNode = FocusNode();
+
   final _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
   bool _obscurePin = true;
@@ -28,10 +34,33 @@ class _LoginPageState extends State<LoginPage> {
   @override
   void initState() {
     super.initState();
+    fillFieldsFromStorage();
     _pinController.addListener(() {
       setState(() {});
     });
+    // Quand l'utilisateur quitte le champ apiUrl, on essaye d'extraire le dbName
+    apiFocusNode.addListener(() {
+      if (!apiFocusNode.hasFocus) {
+        // L’utilisateur a quitté le champ API URL
+        final apiUrl = _apiUrlController.text.trim();
+        final dbName = extractDatabaseName(apiUrl);
+        if (dbName != null) {
+          setState(() {
+            _databaseNameController.text = dbName;
+          });
+        }
+      }
+    });
   }
+
+  Future<void> fillFieldsFromStorage()async{
+    final storageService = StorageService();
+    if (await storageService.hasCustomUrl()){
+      _apiUrlController.text = await storageService.getCustomUrl();
+      _databaseNameController.text = await storageService.getDatabaseName();
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -80,6 +109,75 @@ class _LoginPageState extends State<LoginPage> {
                     style: TextStyle(fontSize: 16, color: Colors.grey[700]),
                   ),
                   const SizedBox(height: 24),
+                  //API URL
+                  TextFormField(
+                    controller: _apiUrlController,
+                    focusNode: apiFocusNode,
+                    decoration: InputDecoration(
+                      labelText: 'API URL',
+                      labelStyle: TextStyle(color: _primaryGreen),
+                      filled: true,
+                      fillColor: _primaryGreen.withOpacity(0.08),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: _primaryGreen),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: _primaryGreen),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: _primaryGreen, width: 2),
+                      ),
+                      prefixIcon: Icon(Icons.link, color: _primaryGreen),
+                    ),
+                    keyboardType: TextInputType.text,
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return "Veuillez entrer l'url de l'api";
+                      }
+                      final uri = Uri.tryParse(value.trim());
+                      if (uri == null ||
+                          (!uri.hasScheme || !uri.hasAuthority)) {
+                        return 'URL invalide ';
+                      }
+
+                      return null;
+                    },
+                  ),
+                  // DATABASE NAME
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _databaseNameController,
+                    decoration: InputDecoration(
+                      labelText: 'Nom de la base de donnée',
+                      labelStyle: TextStyle(color: _primaryGreen),
+                      filled: true,
+                      fillColor: _primaryGreen.withOpacity(0.08),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: _primaryGreen),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: _primaryGreen),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: _primaryGreen, width: 2),
+                      ),
+                      prefixIcon: Icon(Icons.link, color: _primaryGreen),
+                    ),
+                    keyboardType: TextInputType.text,
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return "Veuillez entrer un nom de base de donnée";
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
                   // AJOUT: Champ email
                   TextFormField(
                     controller: _emailController,
@@ -277,7 +375,9 @@ class _LoginPageState extends State<LoginPage> {
       setState(() {
         _isLoading = true;
       });
-
+      //mettre a jour l'url de l'api avant de proceder a la connexion
+      await StorageService().saveCustomUrl(_apiUrlController.text.trim());
+      await StorageService().saveDatabaseName(_databaseNameController.text.trim());
       final authService = Provider.of<AuthService>(context, listen: false);
       final result = await authService.login(
         _emailController.text,
@@ -416,6 +516,9 @@ class _LoginPageState extends State<LoginPage> {
   void dispose() {
     _emailController.dispose();
     _pinController.dispose();
+    _databaseNameController.dispose();
+    _apiUrlController.dispose();
+    apiFocusNode.dispose();
     super.dispose();
   }
 }

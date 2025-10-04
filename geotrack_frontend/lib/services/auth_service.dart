@@ -51,7 +51,7 @@ class AuthService with ChangeNotifier {
         {
           "jsonrpc": "2.0",
           "params": {
-            "db": "nexor-dev-24173695",
+            "db": await StorageService().getDatabaseName(),
             "login": username,
             "password": password
           }
@@ -200,7 +200,7 @@ class AuthService with ChangeNotifier {
     _userEmail = null;
     final store = StorageService();
     await store.deleteUserUsername();
-    await store.clearAllData();
+    // await store.clearAllData();
     notifyListeners();
   }
 

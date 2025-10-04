@@ -5,6 +5,7 @@ import 'package:geotrack_frontend/pages/login_page.dart';
 import 'package:geotrack_frontend/services/auth_service.dart';
 import 'package:geotrack_frontend/services/storage_service.dart';
 import 'package:geotrack_frontend/utils/auth_wrapper.dart';
+import 'package:geotrack_frontend/utils/global_keys.dart';
 import 'package:provider/provider.dart';
 
 class GeoTrackApp extends StatelessWidget {
@@ -18,6 +19,7 @@ class GeoTrackApp extends StatelessWidget {
         Provider(create: (_) => StorageService()),
       ],
       child: MaterialApp(
+        scaffoldMessengerKey: scaffoldMessengerKey,
         title: 'Nexor GeoTrack',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(

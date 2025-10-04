@@ -21,31 +21,10 @@ Future<void> main() async {
 
   // Initialiser le service background uniquement sur les plateformes mobiles
   if (!kIsWeb) {
-    print("---------------initializeee-------------");
-    // await requestPermissions();
     await NotificationService.initialize();
-    // await initializeBackgroundService();
   }
 
   runApp(const GeoTrackApp());
-}
-Future<void> requestPermissions() async {
-  // Demander les permissions nécessaires
-  PermissionStatus location = await Permission.locationWhenInUse.request();
-  if (location.isGranted){
-    var alwaysLocation = await Permission.locationAlways.request();
-    if (alwaysLocation.isGranted){
-
-    }
-  }
-  var notification = await Permission.notification.request();
-  if (notification.isGranted){
-    print("----------------Toute notif ok---------------");
-  }
-  await [
-    Permission.ignoreBatteryOptimizations,
-    Permission.systemAlertWindow,
-  ].request();
 }
 
 

@@ -27,7 +27,6 @@ class AutoCollectService {
       }
       final location = await service._gpsService.getCurrentLocation();
       await service._storageService.savePendingGpsData(location);
-
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
         'last_collection',

@@ -1,8 +1,13 @@
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:geotrack_frontend/utils/db_name_extractor.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geotrack_frontend/models/gps_data_model.dart';
 import 'dart:convert';
 import 'package:nanoid/nanoid.dart';
+
+import '../models/config_model.dart';
+import '../utils/constants.dart';
 
 class StorageService {
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
@@ -11,6 +16,8 @@ class StorageService {
   final String _syncedDataKey = 'synced_gps_data';
   final String _customApiUrlKey = 'custom_api_url';
   final String _deviceIdKey = 'device_id';
+  final String _databaseNameKey = 'database_name';
+  final String _configKey = 'config';
 
   Future<void> saveToken(String token) async {
     print('💾 Saving token: ${token.substring(0, 20)}...');
@@ -134,16 +141,50 @@ class StorageService {
     await prefs.setString(_customApiUrlKey, url);
   }
 
-  /// Récupère l'URL personnalisée si elle existe
-  Future<String?> getCustomUrl() async {
+  // verifier que l'utilisateur a deja une url personnalisé
+  Future<bool> hasCustomUrl() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_customApiUrlKey);
+    final value = prefs.getString(_customApiUrlKey);
+    return value != null && value.isNotEmpty;
+  }
+
+  /// Récupère l'URL personnalisée si elle existe
+  Future<String> getCustomUrl() async {
+    final prefs = await SharedPreferences.getInstance();
+    final value = prefs.getString(_customApiUrlKey);
+    if (value==null || value.isEmpty){
+      return dotenv.get('API_BASE_URL', fallback: Constants.apiBaseUrl);
+    }
+    return value;
   }
 
   /// Supprime l'URL personnalisée (revenir aux valeurs par défaut)
   Future<void> clearCustomUrl() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_customApiUrlKey);
+  }
+
+  /// Sauvegarde la DB name entrée par l'utilisateur
+  Future<void> saveDatabaseName(String url) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_databaseNameKey, url);
+  }
+
+  /// Récupère la DB name si elle existe
+  Future<String> getDatabaseName() async {
+    final prefs = await SharedPreferences.getInstance();
+    final value =  prefs.getString(_databaseNameKey);
+    if (value ==null || value.isEmpty){
+      final newValue =  extractDatabaseName(await getCustomUrl());
+      return newValue ?? dotenv.get('DATABASE_NAME', fallback: 'database_name');
+    }
+    return value;
+  }
+
+  /// Supprime la DB name (revenir aux valeurs par défaut)
+  Future<void> clearDatabaseName() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_databaseNameKey);
   }
 
   Future<void> saveUserUsername(String username) async {
@@ -170,12 +211,10 @@ class StorageService {
     await _secureStorage.delete(key: 'password');
   }
 
-  Future<String> getOrCreateDeviceId() async {
+  Future<String> getDeviceCode() async {
     String? deviceId = await _secureStorage.read(key: _deviceIdKey);
     if (deviceId == null) {
-      final uuid = nanoid(10);
-      deviceId = uuid;
-      await _secureStorage.write(key: _deviceIdKey, value: deviceId);
+      return dotenv.get("DEFAULT_DEVICE_CODE");
     }
     return deviceId;
   }
@@ -186,5 +225,21 @@ class StorageService {
 
   Future<void> deleteDeviceId() async {
     await _secureStorage.delete(key: _deviceIdKey);
+  }
+  // les configurations sont enregistré en minutes.
+  // configSyncInterval est deja en minute donc pas besoin de conversion
+  Future<void> saveConfig(Config config) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt("collect_interval", config.collectionInterval ~/ 60);
+    await prefs.setInt("sync_interval", config.sendInterval ~/ 60);
+    await prefs.setInt("config_sync_interval",config.configSyncInterval);
+  }
+
+  Future<Config> getConfig()async{
+    final prefs = await SharedPreferences.getInstance();
+    final collectInterval = prefs.getInt("collect_interval");
+    final syncInterval = prefs.getInt("sync_interval");
+    final configSyncInterval = prefs.getInt("config_sync_interval");
+    return Config(collectionInterval: collectInterval!, sendInterval: syncInterval!, configSyncInterval: configSyncInterval!, id:0);
   }
 }

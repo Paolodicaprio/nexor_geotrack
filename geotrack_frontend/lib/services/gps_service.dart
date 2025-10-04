@@ -58,7 +58,7 @@ class GpsService {
 
   Future<String> _getDeviceId() async {
     // Utiliser un identifiant unique pour l'appareil
-    return await StorageService().getOrCreateDeviceId();
+    return await StorageService().getDeviceCode();
   }
 
   Stream<Position> getLocationStream() {

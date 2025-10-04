@@ -10,5 +10,8 @@ class Constants {
   static const String syncIntervalKey = 'sync_interval';
 
   // Default values
-  static const int defaultSyncInterval = 5; // minutes
+  // static const int defaultSyncInterval = 5; // minutes
+  static const int defaultConfigSyncInterval = 180; //minutes
+  static const int defaultCollectionInterval = 60; //seconds
+  static const int defaultSendInterval = 300; //seconds
 }

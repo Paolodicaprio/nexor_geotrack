@@ -56,13 +56,8 @@ class ApiService {
         await StorageService().deleteToken();
         throw Exception('Token expiré - Veuillez vous reconnecter');
       }else if(response.statusCode == 404 ){
-        // créer une config par defaut
-        final defaultConfig = {
-          "position_sampling_interval": 300,
-          "position_sync_interval": 600
-        };
-        final config = await createConfig(defaultConfig);
-        return config;
+        // config par defaut si pas de config
+        return Config.fromDefault();
       } else {
         throw Exception(
           'Failed to load config: ${response.statusCode} - ${response.body}',
@@ -80,7 +75,7 @@ class ApiService {
     try {
       final apiUrl = await getApiUrl();
       final headers = await _getHeaders();
-      final deviceCode = await StorageService().getOrCreateDeviceId();
+      final deviceCode = await StorageService().getDeviceCode();
       final body = jsonEncode({
         "positions": [
          data.toApiJson()
@@ -114,7 +109,7 @@ class ApiService {
     try {
       final apiUrl = await getApiUrl();
       final headers = await _getHeaders();
-      final deviceCode = await StorageService().getOrCreateDeviceId();
+      final deviceCode = await StorageService().getDeviceCode();
       final body = jsonEncode({"positions": data});
       final url = Uri.parse('$apiUrl/transport_tracking/$deviceCode/positions');
 

@@ -7,7 +7,7 @@ import 'package:geotrack_frontend/services/auth_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SettingsPage extends StatefulWidget {
-  const SettingsPage({Key? key}) : super(key: key);
+  const SettingsPage({super.key});
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -18,6 +18,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final TextEditingController _syncIntervalController = TextEditingController();
   final TextEditingController _apiUrlController = TextEditingController();
   final TextEditingController _deviceCodeController = TextEditingController();
+  final TextEditingController _databaseNameController = TextEditingController();
 
   final _settingsFormKey = GlobalKey<FormState>();
   final _apiFormKey = GlobalKey<FormState>();
@@ -29,7 +30,7 @@ class _SettingsPageState extends State<SettingsPage> {
   void initState() {
     super.initState();
     _loadSettings();
-    _loadApiUrl();
+    _loadApiSettings();
   }
 
   Future<void> _loadSettings() async {
@@ -61,11 +62,13 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> _loadApiUrl() async {
+  Future<void> _loadApiSettings() async {
     final apiUrl = await ApiService.getApiUrl();
-    final deviceCode = await StorageService().getOrCreateDeviceId();
+    final dbName = await StorageService().getDatabaseName();
+    final deviceCode = await StorageService().getDeviceCode();
     setState(() {
       _apiUrlController.text = apiUrl;
+      _databaseNameController.text = dbName;
       _deviceCodeController.text = deviceCode;
     });
   }
@@ -124,7 +127,6 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _changeApiSetting() async {
     if (_apiFormKey.currentState!.validate()) {
       await StorageService().saveCustomUrl(_apiUrlController.text);
-      await StorageService().saveDeviceId(_deviceCodeController.text);
       setState(() {
         _showApiSection = false;
       });
@@ -138,20 +140,60 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> _clearApiUrl() async {
-    await StorageService().clearCustomUrl();
-    setState(() {
-      _showApiSection = false;
-    });
-    await _loadApiUrl(); // Recharger l'URL par défaut
+  Future<void> showConfirmDialog()async{
+    await showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Confirmer la deconnexion',style: TextStyle(fontSize: 18),),
+          content: const Text(
+            "Vous allez etre déconnecter afin de pouvoir modifier les parametres de l'api"
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text('Annuler'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.of(context).pop();
+                await _logout();
+                },
+              child: const Text('confirmer'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _saveDeviceCode()async{
+    await StorageService().saveDeviceId(_deviceCodeController.text.trim());
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('URL réinitialisée avec succès'),
+        content: Text('Device code modifié avec succès'),
         backgroundColor: Colors.green,
       ),
     );
   }
+
+  // Future<void> _clearApiUrl() async {
+  //   await StorageService().clearCustomUrl();
+  //   setState(() {
+  //     _showApiSection = false;
+  //   });
+  //   await _loadApiSettings(); // Recharger l'URL par défaut
+  //   if (!mounted) return;
+  //   ScaffoldMessenger.of(context).showSnackBar(
+  //     const SnackBar(
+  //       content: Text('URL réinitialisée avec succès'),
+  //       backgroundColor: Colors.green,
+  //     ),
+  //   );
+  // }
 
   @override
   Widget build(BuildContext context) {
@@ -302,28 +344,6 @@ class _SettingsPageState extends State<SettingsPage> {
                         child: Column(
                           children: [
                             TextFormField(
-                              controller: _apiUrlController,
-                              decoration: const InputDecoration(
-                                labelText: 'URL de l\'API',
-                                border: OutlineInputBorder(),
-                                prefixIcon: Icon(Icons.link),
-                                hintText: 'http://10.0.2.2:8000',
-                              ),
-                              keyboardType: TextInputType.url,
-                              validator: (value) {
-                                if (value == null || value.trim().isEmpty) {
-                                  return 'Veuillez entrer l\'URL de l\'API';
-                                }
-                                final uri = Uri.tryParse(value.trim());
-                                if (uri == null ||
-                                    (!uri.hasScheme || !uri.hasAuthority)) {
-                                  return 'URL invalide (ex: http://10.0.2.2:8000)';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 16),
-                            TextFormField(
                               controller: _deviceCodeController,
                               decoration: const InputDecoration(
                                 labelText: 'Votre Device code',
@@ -339,13 +359,72 @@ class _SettingsPageState extends State<SettingsPage> {
                                 return null;
                               },
                             ),
+                            const SizedBox(height: 16,),
+                            SizedBox(
+                              width: double.infinity,
+                              child:ElevatedButton(
+                                onPressed: _saveDeviceCode,
+                                style: ElevatedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 16,
+                                  ),
+                                  backgroundColor: Colors.green,
+                                  foregroundColor: Colors.white,
+                                ),
+                                child: const Text("Valider"),
+                              )
+                            ),
+                            const SizedBox(height: 24),
+                            (Divider()),
+                            const SizedBox(height: 16),
+                            TextFormField(
+                              controller: _apiUrlController,
+                              enabled: false,
+                              decoration: const InputDecoration(
+                                labelText: 'URL de l\'API',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.link),
+                                hintText: 'http://10.0.2.2:8000',
+                              ),
+                              keyboardType: TextInputType.url,
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return 'Veuillez entrer l\'URL de l\'API';
+                                }
+                                final uri = Uri.tryParse(value.trim());
+                                if (uri == null ||
+                                    (!uri.hasScheme || !uri.hasAuthority)) {
+                                  return 'URL invalide ';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 16),
+                            TextFormField(
+                              controller: _databaseNameController,
+                              enabled: false,
+                              decoration: const InputDecoration(
+                                labelText: 'Nom de la base de donnée',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.storage),
+                                hintText: 'ma-base-de-donnee',
+                              ),
+                              keyboardType: TextInputType.text,
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return 'Veuillez entrer un nom pour la base de donnée';
+                                }
+                                return null;
+                              },
+                            ),
+
                             const SizedBox(height: 16),
                             SizedBox(
                               width: double.infinity,
                               child: ElevatedButton.icon(
                                 icon: const Icon(Icons.update),
-                                label: const Text('Enregistrer les paramètres'),
-                                onPressed: _changeApiSetting,
+                                label: const Text('Modifier les paramètres'),
+                                onPressed: showConfirmDialog,
                                 style: ElevatedButton.styleFrom(
                                   padding: const EdgeInsets.symmetric(
                                     vertical: 16,
@@ -355,24 +434,24 @@ class _SettingsPageState extends State<SettingsPage> {
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 8),
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton.icon(
-                                icon: const Icon(Icons.clear),
-                                label: const Text(
-                                  'Revenir à l\'URL par défaut',
-                                ),
-                                onPressed: _clearApiUrl,
-                                style: ElevatedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 16,
-                                  ),
-                                  backgroundColor: Colors.orange,
-                                  foregroundColor: Colors.white,
-                                ),
-                              ),
-                            ),
+                            // const SizedBox(height: 8),
+                            // SizedBox(
+                            //   width: double.infinity,
+                            //   child: ElevatedButton.icon(
+                            //     icon: const Icon(Icons.clear),
+                            //     label: const Text(
+                            //       'Revenir à l\'URL par défaut',
+                            //     ),
+                            //     onPressed: _clearApiUrl,
+                            //     style: ElevatedButton.styleFrom(
+                            //       padding: const EdgeInsets.symmetric(
+                            //         vertical: 16,
+                            //       ),
+                            //       backgroundColor: Colors.orange,
+                            //       foregroundColor: Colors.white,
+                            //     ),
+                            //   ),
+                            // ),
                           ],
                         ),
                       ),
@@ -410,6 +489,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _collectIntervalController.dispose();
     _syncIntervalController.dispose();
     _apiUrlController.dispose();
+    _deviceCodeController.dispose();
     super.dispose();
   }
 }
