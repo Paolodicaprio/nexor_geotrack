@@ -27,7 +27,7 @@ class _LoginPageState extends State<LoginPage> {
   bool _isLoading = false;
   bool _obscurePin = true;
 
-  // Couleurs personnalisées
+  // Custom colors
   final Color _primaryGreen = const Color(0xFF2ECC40);
   final Color _backgroundWhite = Colors.white;
 
@@ -38,10 +38,10 @@ class _LoginPageState extends State<LoginPage> {
     _pinController.addListener(() {
       setState(() {});
     });
-    // Quand l'utilisateur quitte le champ apiUrl, on essaye d'extraire le dbName
+    // When the user leaves the apiUrl field, we try to extract the dbName
     apiFocusNode.addListener(() {
       if (!apiFocusNode.hasFocus) {
-        // L’utilisateur a quitté le champ API URL
+        // The user has left the API URL field
         final apiUrl = _apiUrlController.text.trim();
         final dbName = extractDatabaseName(apiUrl);
         if (dbName != null) {
@@ -96,7 +96,7 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const SizedBox(height: 24),
                   Text(
-                    'Nexor GeoTrack',
+                    'NexOR GeoTrack',
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
@@ -105,7 +105,7 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Entrez vos identifiants',
+                    'Enter your credentials to login',
                     style: TextStyle(fontSize: 16, color: Colors.grey[700]),
                   ),
                   const SizedBox(height: 24),
@@ -114,7 +114,7 @@ class _LoginPageState extends State<LoginPage> {
                     controller: _apiUrlController,
                     focusNode: apiFocusNode,
                     decoration: InputDecoration(
-                      labelText: 'API URL',
+                      labelText: 'API Base URL',
                       labelStyle: TextStyle(color: _primaryGreen),
                       filled: true,
                       fillColor: _primaryGreen.withOpacity(0.08),
@@ -135,12 +135,12 @@ class _LoginPageState extends State<LoginPage> {
                     keyboardType: TextInputType.text,
                     validator: (value) {
                       if (value == null || value.isEmpty) {
-                        return "Veuillez entrer l'url de l'api";
+                        return "Please enter an URL";
                       }
                       final uri = Uri.tryParse(value.trim());
                       if (uri == null ||
                           (!uri.hasScheme || !uri.hasAuthority)) {
-                        return 'URL invalide ';
+                        return 'invalid URL ';
                       }
 
                       return null;
@@ -151,7 +151,7 @@ class _LoginPageState extends State<LoginPage> {
                   TextFormField(
                     controller: _databaseNameController,
                     decoration: InputDecoration(
-                      labelText: 'Nom de la base de donnée',
+                      labelText: 'Database Name',
                       labelStyle: TextStyle(color: _primaryGreen),
                       filled: true,
                       fillColor: _primaryGreen.withOpacity(0.08),
@@ -172,17 +172,17 @@ class _LoginPageState extends State<LoginPage> {
                     keyboardType: TextInputType.text,
                     validator: (value) {
                       if (value == null || value.isEmpty) {
-                        return "Veuillez entrer un nom de base de donnée";
+                        return "Please enter a database name";
                       }
                       return null;
                     },
                   ),
                   const SizedBox(height: 16),
-                  // AJOUT: Champ email
+                  // ADD: Email field
                   TextFormField(
                     controller: _emailController,
                     decoration: InputDecoration(
-                      labelText: 'Email',
+                      labelText: 'Username',
                       labelStyle: TextStyle(color: _primaryGreen),
                       filled: true,
                       fillColor: _primaryGreen.withOpacity(0.08),
@@ -198,12 +198,12 @@ class _LoginPageState extends State<LoginPage> {
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide(color: _primaryGreen, width: 2),
                       ),
-                      prefixIcon: Icon(Icons.email, color: _primaryGreen),
+                      prefixIcon: Icon(Icons.account_circle, color: _primaryGreen),
                     ),
                     keyboardType: TextInputType.text,
                     validator: (value) {
                       if (value == null || value.isEmpty) {
-                        return 'Veuillez entrer votre username';
+                        return 'Please enter an username';
                       }
 
                       return null;
@@ -214,7 +214,7 @@ class _LoginPageState extends State<LoginPage> {
                     controller: _pinController,
                     obscureText: _obscurePin,
                     decoration: InputDecoration(
-                      labelText: 'Code d\'accès',
+                      labelText: 'Password',
                       labelStyle: TextStyle(color: _primaryGreen),
                       filled: true,
                       fillColor: _primaryGreen.withOpacity(0.08),
@@ -247,11 +247,9 @@ class _LoginPageState extends State<LoginPage> {
                     keyboardType: TextInputType.text,
                     validator: (value) {
                       if (value == null || value.isEmpty) {
-                        return 'Veuillez entrer votre code d\'accès';
+                        return 'Please enter a password';
                       }
-                      // if (value.length != 8) {
-                      //   return 'Le code d\'accès doit contenir 8 caractères';
-                      // }
+                      // if (value.length != 8) { //   return 'The access code must contain 8 characters'; // }
                       return null;
                     },
                   ),
@@ -260,7 +258,7 @@ class _LoginPageState extends State<LoginPage> {
                     Padding(
                       padding: const EdgeInsets.only(bottom: 12),
                       child: Text(
-                        'Compte verrouillé. Réessayez dans ${authService.getRemainingBlockTime().inSeconds} secondes',
+                        'Access blocked. Please try in ${authService.getRemainingBlockTime().inSeconds} seconds',
                         style: const TextStyle(
                           color: Colors.red,
                           fontWeight: FontWeight.bold,
@@ -273,7 +271,7 @@ class _LoginPageState extends State<LoginPage> {
                     Padding(
                       padding: const EdgeInsets.only(bottom: 12),
                       child: Text(
-                        'Tentatives échouées: ${authService.failedAttempts}/3',
+                        'failed attempts: ${authService.failedAttempts}/3',
                         style: TextStyle(color: Colors.orange[700]),
                       ),
                     ),
@@ -299,7 +297,7 @@ class _LoginPageState extends State<LoginPage> {
                                 color: Colors.white,
                               )
                               : const Text(
-                                'Connexion',
+                                'Login',
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
@@ -321,7 +319,7 @@ class _LoginPageState extends State<LoginPage> {
                               );
                             },
                     child: Text(
-                      'Créer un compte',
+                      'Create an account',
                       style: TextStyle(
                         color:
                             authService.isBlocked()
@@ -347,7 +345,7 @@ class _LoginPageState extends State<LoginPage> {
                               );
                             },
                     child: Text(
-                      'Code d\'accès oublié ?',
+                      'Forgot access code?',
                       style: TextStyle(
                         color:
                             authService.isBlocked()
@@ -375,7 +373,7 @@ class _LoginPageState extends State<LoginPage> {
       setState(() {
         _isLoading = true;
       });
-      //mettre a jour l'url de l'api avant de proceder a la connexion
+      //update the api url before proceeding to login
       await StorageService().saveCustomUrl(_apiUrlController.text.trim());
       await StorageService().saveDatabaseName(_databaseNameController.text.trim());
       final authService = Provider.of<AuthService>(context, listen: false);
@@ -391,7 +389,7 @@ class _LoginPageState extends State<LoginPage> {
       if (result.success) {
         print('✅ Login successful, checking token persistence...');
 
-        // Test immédiat de la persistance
+        // Immediate persistence test
         final storedToken = await StorageService().getToken();
         final storedEmail = await StorageService().getUserUsername();
 
@@ -401,12 +399,12 @@ class _LoginPageState extends State<LoginPage> {
         print(
           '📧 Stored email after login: ${storedEmail != null ? "OK" : "FAILED"}',
         );
-        // VÉRIFICATION DES PERMISSIONS DE LOCALISATION APRÈS CONNEXION
+        // CHECKING LOCATION PERMISSIONS AFTER LOGIN
         await _checkLocationPermissions();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(result.error ?? 'Échec de la connexion'),
+            content: Text(result.error ?? 'Login failed'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
@@ -421,23 +419,23 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _checkLocationPermissions() async {
     final gpsService = GpsService();
 
-    // Vérifier d'abord si la localisation du mobile est activée
+    // First check if mobile location is enabled
     final isLocationEnabled = await Geolocator.isLocationServiceEnabled();
 
     if (!isLocationEnabled) {
-      // Localisation du mobile désactivée
+      // Mobile location disabled
       await _showEnableLocationDialog();
       return;
     }
 
-    // Ensuite vérifier les permissions de l'app
+    // Then check the app permissions
     final hasAppPermission = await gpsService.checkPermission();
 
     if (!hasAppPermission) {
-      // Permission de l'app refusée
+      // App permission denied
       await _showLocationPermissionDialog();
     } else {
-      // Tout est OK, rediriger
+      // Everything is OK, redirect
       Navigator.pushReplacementNamed(context, '/dashboard');
     }
   }
@@ -448,29 +446,29 @@ class _LoginPageState extends State<LoginPage> {
       barrierDismissible: false,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: const Text('Localisation requise'),
+          title: const Text('Location required'),
           content: const Text(
-            'La localisation de votre téléphone est désactivée. '
-            'Veuillez l\'activer dans les paramètres de votre appareil pour utiliser l\'application.',
+            'Your phone\'s location is disabled. '
+            'Please enable it in your device settings to use the application.',
           ),
           actions: [
             TextButton(
               onPressed: () {
                 Navigator.of(context).pop();
-                // Rediriger quand même vers le dashboard
+                // Redirect to the dashboard anyway
                 Navigator.pushReplacementNamed(context, '/dashboard');
               },
-              child: const Text('Ignorer'),
+              child: const Text('Ignore'),
             ),
             TextButton(
               onPressed: () async {
-                // Ouvrir les paramètres de localisation du téléphone
+                // Open the phone's location settings
                 await Geolocator.openLocationSettings();
                 Navigator.of(context).pop();
-                // Re-vérifier après retour des paramètres
+                // Re-check after returning from settings
                 await _checkLocationPermissions();
               },
-              child: const Text('Activer'),
+              child: const Text('Enable'),
             ),
           ],
         );
@@ -484,9 +482,9 @@ class _LoginPageState extends State<LoginPage> {
       barrierDismissible: false,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: const Text('Permission requise'),
+          title: const Text('Permission required'),
           content: const Text(
-            'L\'application a besoin d\'accéder à votre localisation pour fonctionner correctement.',
+            'The application needs to access your location to function correctly.',
           ),
           actions: [
             TextButton(
@@ -494,17 +492,17 @@ class _LoginPageState extends State<LoginPage> {
                 Navigator.of(context).pop();
                 Navigator.pushReplacementNamed(context, '/dashboard');
               },
-              child: const Text('Ignorer'),
+              child: const Text('Ignore'),
             ),
             TextButton(
               onPressed: () async {
-                // Demander la permission
+                // Request permission
                 await Geolocator.requestPermission();
                 Navigator.of(context).pop();
-                // Re-vérifier après la permission
+                // Re-check after permission
                 await _checkLocationPermissions();
               },
-              child: const Text('Autoriser'),
+              child: const Text('Authorize'),
             ),
           ],
         );

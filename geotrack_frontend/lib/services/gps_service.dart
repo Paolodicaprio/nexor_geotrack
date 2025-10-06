@@ -42,11 +42,10 @@ class GpsService {
           position.latitude > 90 ||
           position.longitude < -180 ||
           position.longitude > 180) {
-        throw Exception('Coordonnées GPS invalides');
+        throw Exception('Invalid location coordinates');
       }
       return GpsData(
         id: const Uuid().v4(),
-        deviceId: await _getDeviceId(),
         lat: position.latitude,
         lon: position.longitude,
         timestamp: DateTime.now(),
@@ -56,7 +55,7 @@ class GpsService {
     }
   }
 
-  Future<String> _getDeviceId() async {
+  Future<String?> _getDeviceId() async {
     // Utiliser un identifiant unique pour l'appareil
     return await StorageService().getDeviceCode();
   }

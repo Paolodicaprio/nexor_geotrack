@@ -2,7 +2,6 @@ import 'package:uuid/uuid.dart';
 
 class GpsData {
   final String? id;
-  final String deviceId;
   final double lat;
   final double lon;
   final DateTime timestamp;
@@ -11,7 +10,6 @@ class GpsData {
 
   GpsData({
     String? id,
-    required this.deviceId,
     required this.lat,
     required this.lon,
     required this.timestamp,
@@ -22,7 +20,6 @@ class GpsData {
   factory GpsData.fromJson(Map<String, dynamic> json) {
     return GpsData(
       id: json['id']?.toString(),
-      deviceId: json['device_id'] ?? json['idname'] ?? 'unknown',
       lat: json['lat']?.toDouble() ?? json['latitude']?.toDouble() ?? 0.0,
       lon: json['lon']?.toDouble() ?? json['longitude']?.toDouble() ?? 0.0,
       timestamp: DateTime.parse(json['timestamp'] ?? json['datetime']),
@@ -37,7 +34,6 @@ class GpsData {
   Map<String, dynamic> toJson() {
     return {
       'id': id,
-      'device_id': deviceId,
       'lat': lat,
       'lon': lon,
       'timestamp': timestamp.toIso8601String(),
@@ -51,14 +47,13 @@ class GpsData {
     return {
       'latitude': lat,
       'longitude': lon,
-      'timestamp': timestamp.toIso8601String(),
+      'timestamp': timestamp.toUtc().toIso8601String().split('.').first+'Z',
     };
   }
 
   GpsData copyWith({bool? synced}) {
     return GpsData(
       id: id,
-      deviceId: deviceId,
       lat: lat,
       lon: lon,
       timestamp: timestamp,

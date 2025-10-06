@@ -20,7 +20,7 @@ class StorageService {
   final String _configKey = 'config';
 
   Future<void> saveToken(String token) async {
-    print('💾 Saving token: ${token.substring(0, 20)}...');
+    print('💾 Saving token: ${token}...');
     await _secureStorage.write(key: _cookieKey, value: token);
   }
 
@@ -211,12 +211,8 @@ class StorageService {
     await _secureStorage.delete(key: 'password');
   }
 
-  Future<String> getDeviceCode() async {
-    String? deviceId = await _secureStorage.read(key: _deviceIdKey);
-    if (deviceId == null) {
-      return dotenv.get("DEFAULT_DEVICE_CODE");
-    }
-    return deviceId;
+  Future<String?> getDeviceCode() async {
+    return await _secureStorage.read(key: _deviceIdKey);
   }
 
   Future<void> saveDeviceId(String deviceId) async {

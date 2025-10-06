@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:geotrack_frontend/services/notification_service.dart';
+import 'package:geotrack_frontend/services/safe_http.dart';
 import 'package:http/http.dart' as http;
 import 'package:geotrack_frontend/models/config_model.dart';
 import 'package:geotrack_frontend/models/gps_data_model.dart';
@@ -44,30 +45,22 @@ class ApiService {
       final apiUrl = await getApiUrl();
       final headers = await _getHeaders();
 
-      final response = await http
-          .get(Uri.parse('$apiUrl/transport_tracking/config'), headers: headers)
-          .timeout(const Duration(seconds: 30));
+      final response = await SafeHttp.request(() => http.get(
+          Uri.parse('$apiUrl/transport_tracking/config'),
+          headers: headers).timeout(Duration(seconds: 30)));
 
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        return Config.fromJson(data);
+        return Config.fromJson(json.decode(response.body));
       } else if (response.statusCode == 401) {
-        // Token expiré - déconnecter l'utilisateur
         await StorageService().deleteToken();
-        throw Exception('Token expiré - Veuillez vous reconnecter');
-      }else if(response.statusCode == 404 ){
-        // config par defaut si pas de config
+        throw Exception('Token expiré - Veuillez vous reconnecter.');
+      } else if (response.statusCode == 404) {
         return Config.fromDefault();
       } else {
-        throw Exception(
-          'Failed to load config: ${response.statusCode} - ${response.body}',
-        );
+        throw Exception('Erreur ${response.statusCode}: ${response.body}');
       }
     } catch (e) {
-      if (e.toString().contains('Token expiré')) {
-        rethrow; // Propager l'erreur d'authentification
-      }
-      throw Exception('Failed to load config: $e');
+      throw Exception('Impossible de charger la config : $e');
     }
   }
 
@@ -85,7 +78,7 @@ class ApiService {
       print(url);
       print(headers);
       print('body :::::$body');
-      final response = await http.post(url, headers: headers, body: body );
+      final response = await SafeHttp.request(()=> http.post(url, headers: headers, body: body ));
 
       if (response.statusCode == 200) {
         print(response.body);
@@ -106,18 +99,21 @@ class ApiService {
   }
 
   Future<void> sendGpsDataJsonList(List<Map<String, dynamic>> data) async {
+    final deviceCode = await StorageService().getDeviceCode();
+    if (deviceCode ==null){
+      throw Exception('Could not send data: You must set a device code in settings');
+    }
     try {
       final apiUrl = await getApiUrl();
       final headers = await _getHeaders();
-      final deviceCode = await StorageService().getDeviceCode();
       final body = jsonEncode({"positions": data});
       final url = Uri.parse('$apiUrl/transport_tracking/$deviceCode/positions');
 
-      print(url);
-      print(headers);
-      print('body :::::$body');
+      // print(url);
+      // print(headers);
+      // print('body :::::$body');
 
-      final response = await http.post(url, headers: headers, body: body);
+      final response = await SafeHttp.request(()=>http.post(url, headers: headers, body: body));
 
       if (response.statusCode == 200) {
         print('✅ GPS data synced successfully: ${response.body}');
@@ -125,7 +121,7 @@ class ApiService {
       }
 
       // Gestion des erreurs
-      String errorMessage = 'Erreur inconnue';
+      String errorMessage = 'Unknown Error';
       try {
         final Map<String, dynamic> responseData = jsonDecode(response.body);
         if (responseData.containsKey('message')) {
@@ -171,7 +167,7 @@ class ApiService {
         '$apiUrl/location',
       ).replace(queryParameters: params);
 
-      final response = await http.get(uri, headers: headers);
+      final response = await SafeHttp.request(()=>http.get(uri, headers: headers));
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
@@ -192,11 +188,11 @@ class ApiService {
       print('🔄 PUT Request to: $apiUrl/transport_tracking/config');
       print('📦 Payload: $updates');
 
-      final response = await http.put(
+      final response = await SafeHttp.request(()=>http.put(
         Uri.parse('$apiUrl/transport_tracking/config'),
         headers: headers,
         body: json.encode(updates),
-      );
+      ));
 
       print('📤 Response Status: ${response.statusCode}');
       print('📤 Response Body: ${response.body}');
@@ -223,11 +219,11 @@ class ApiService {
       print('🔄 POST Request to: $apiUrl/transport_tracking/config');
       print('📦 Payload: $config');
 
-      final response = await http.post(
+      final response = await SafeHttp.request(()=>http.post(
         Uri.parse('$apiUrl/transport_tracking/config'),
         headers: headers,
         body: json.encode(config),
-      );
+      ));
 
       print('📤 Response Status: ${response.statusCode}');
       print('📤 Response Body: ${response.body}');

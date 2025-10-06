@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
+import 'package:geotrack_frontend/services/api_service.dart';
+import 'package:geotrack_frontend/services/safe_http.dart';
 import 'package:http/http.dart' as http;
 import 'package:geotrack_frontend/models/auth_model.dart';
 import 'package:geotrack_frontend/utils/constants.dart';
@@ -57,16 +59,16 @@ class AuthService with ChangeNotifier {
           }
         };
 
-      final response = await http
+      final response = await SafeHttp.request(()=>http
           .post(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
-        body: json.encode(body)
-          )
-          .timeout(const Duration(seconds: 40));
+          uri,
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: json.encode(body)
+      )
+          .timeout(const Duration(seconds: 40)));
       print("------------------------------------------");
       print(response.body);
       print(response.statusCode);
@@ -93,38 +95,44 @@ class AuthService with ChangeNotifier {
           }else{
             return LoginResponse(
               success: false,
-              error: 'Erreur de connexion: Cookie non trouvé',
+              error: 'Connection failed: Cookie not found',
             );
           }
         }
         print('reponse apres login : ${response.body}  - ${response.statusCode}');
         return LoginResponse(
           success: false,
-          error: 'Erreur de connexion: Login ou mot de passe incorrect',
+          error: 'Connection failed : Invalid credentials',
         );
       } else if (response.statusCode == 401) {
         _handleFailedAttempt();
         return LoginResponse(
           success: false,
           error:
-              'Code d\'accès incorrect. Tentatives restantes: ${3 - _failedAttempts}',
+              'Invalid password. Attempts remaining: ${3 - _failedAttempts}',
         );
       } else {
         final errorData = json.decode(response.body);
         return LoginResponse(
           success: false,
-          error: errorData['detail'] ?? 'Erreur de connexion',
+          error: errorData['detail'] ?? 'Connection Failed',
         );
       }
     } on SocketException {
       return LoginResponse(
         success: false,
-        error: 'Impossible de se connecter au serveur',
+        error: 'Unable to connect to the server',
       );
     } on TimeoutException {
-      return LoginResponse(success: false, error: 'Timeout de connexion');
+      return LoginResponse(success: false, error: 'Connection timeout');
     } catch (e) {
-      return LoginResponse(success: false, error: 'Erreur de connexion: $e');
+      String message;
+      if(e.toString().contains("HandshakeException")){
+        message = "Unable to connect to the server, check the API URL";
+      }else{
+        message = e.toString();
+      }
+      return LoginResponse(success: false, error: 'Connection failed: $message');
     }
   }
 
@@ -134,16 +142,15 @@ class AuthService with ChangeNotifier {
 
       print('🔄 Register attempt - URL: $apiUrl/auth/register');
 
-      final response = await http
+      final response = await SafeHttp.request(()=>http
           .post(
-            Uri.parse('$apiUrl/auth/register'),
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
-            body: json.encode({'email': email}),
-          )
-          .timeout(const Duration(seconds: 10));
+        Uri.parse('$apiUrl/auth/register'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: json.encode({'email': email}),
+      ).timeout(const Duration(seconds: 10)));
 
       print('📤 Response Status: ${response.statusCode}');
       print('📤 Response Body: ${response.body}');
@@ -220,20 +227,20 @@ class AuthService with ChangeNotifier {
         final data = json.decode(response.body);
         return {
           'success': true,
-          'message': 'Nouveau code d\'accès envoyé par email',
+          'message': 'New password sent in your mail',
           'access_code': data['access_code'],
         };
       } else {
         final errorData = json.decode(response.body);
         return {
           'success': false,
-          'message': errorData['detail'] ?? 'Erreur lors de la récupération',
+          'message': errorData['detail'] ?? 'Error while retrieving',
         };
       }
     } catch (e) {
       print("------------------errror-------------");
       print(e);
-      return {'success': false, 'message': 'Erreur de connexion: $e'};
+      return {'success': false, 'message': 'Connection error: $e'};
     }
   }
 

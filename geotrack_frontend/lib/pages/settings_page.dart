@@ -70,11 +70,13 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _loadApiSettings() async {
     final apiUrl = await ApiService.getApiUrl();
     final dbName = await StorageService().getDatabaseName();
-    final deviceCode = await StorageService().getDeviceCode();
+    final String? deviceCode = await StorageService().getDeviceCode();
     setState(() {
       _apiUrlController.text = apiUrl;
       _databaseNameController.text = dbName;
-      _deviceCodeController.text = deviceCode;
+     if (deviceCode !=null){
+       _deviceCodeController.text = deviceCode;
+     }
     });
   }
 
@@ -92,14 +94,14 @@ class _SettingsPageState extends State<SettingsPage> {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Configurations recupéré  avec succès'),
+            content: Text('Configurations successfully retrieved'),
             backgroundColor: Colors.green,
           ),
         );
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Erreur lors de la recuperation: $e'),
+            content: Text('Error during retrieval: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -135,23 +137,23 @@ class _SettingsPageState extends State<SettingsPage> {
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: const Text('Confirmer la deconnexion',style: TextStyle(fontSize: 18),),
+          title: const Text('Confirm Logout',style: TextStyle(fontSize: 18),),
           content: const Text(
-            "Vous allez etre déconnecter afin de pouvoir modifier les parametres de l'api"
+            "You will be logged out to be able to modify the API settings"
           ),
           actions: [
             TextButton(
               onPressed: () {
                 Navigator.of(context).pop();
               },
-              child: const Text('Annuler'),
+              child: const Text('Cancel'),
             ),
             TextButton(
               onPressed: () async {
                 Navigator.of(context).pop();
                 await _logout();
                 },
-              child: const Text('confirmer'),
+              child: const Text('Confirm'),
             ),
           ],
         );
@@ -164,7 +166,7 @@ class _SettingsPageState extends State<SettingsPage> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Device code modifié avec succès'),
+        content: Text('Device code successfully modified'),
         backgroundColor: Colors.green,
       ),
     );
@@ -189,7 +191,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Paramètres'),
+        title: const Text('Settings'),
         backgroundColor: Colors.green,
         foregroundColor: Colors.white,
       ),
@@ -215,7 +217,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           Icon(Icons.timer, color: Colors.green),
                           SizedBox(width: 12),
                           Text(
-                            'Intervalles de Synchronisation',
+                            'Synchronization Intervals',
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
@@ -228,7 +230,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         enabled: false,
                         controller: _collectIntervalController,
                         decoration: const InputDecoration(
-                          labelText: 'Intervalle de collecte (secondes)',
+                          labelText: 'Collection interval (seconds)',
                           border: OutlineInputBorder(),
                           prefixIcon: Icon(Icons.gps_fixed),
                         ),
@@ -240,7 +242,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         controller: _syncIntervalController,
                         enabled: false,
                         decoration: const InputDecoration(
-                          labelText: 'Intervalle de synchronisation (secondes)',
+                          labelText: 'Synchronization interval (seconds)',
                           border: OutlineInputBorder(),
                           prefixIcon: Icon(Icons.sync),
                         ),
@@ -251,18 +253,18 @@ class _SettingsPageState extends State<SettingsPage> {
                         controller: _configSyncIntervalController,
                         enabled: false,
                         decoration: const InputDecoration(
-                          labelText: 'synchronisation de la configuration (minutes)',
+                          labelText: 'Configuration synchronization (minutes)',
                           border: OutlineInputBorder(),
                           prefixIcon: Icon(Icons.sync),
                         ),
                         keyboardType: TextInputType.number,
                         validator: (value) {
                           if (value == null || value.isEmpty) {
-                            return 'Veuillez entrer un intervalle';
+                            return 'Please enter an interval';
                           }
                           final val = int.tryParse(value);
                           if (val == null || val < 1) {
-                            return 'Intervalle invalide (min. 1 minute)';
+                            return 'Invalid interval (min. 1 minute)';
                           }
                           return null;
                         },
@@ -277,7 +279,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                   ? const CircularProgressIndicator(
                                     color: Colors.white,
                                   )
-                                  : const Text('Recharger les configurations'),
+                                  : const Text('Reload Configurations'),
                           onPressed: _configLoading ? null : _refetchSettings,
                           style: ElevatedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 16),
@@ -309,7 +311,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         const Icon(Icons.api, color: Colors.green),
                         const SizedBox(width: 12),
                         const Text(
-                          'Configuration de l\'API',
+                          'API Configuration',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
@@ -340,7 +342,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             TextFormField(
                               controller: _deviceCodeController,
                               decoration: const InputDecoration(
-                                labelText: 'Votre Device code',
+                                labelText: 'Your Device Code',
                                 border: OutlineInputBorder(),
                                 prefixIcon: Icon(Icons.numbers),
                                 hintText: 'abcd123',
@@ -348,7 +350,7 @@ class _SettingsPageState extends State<SettingsPage> {
                               keyboardType: TextInputType.text,
                               validator: (value) {
                                 if (value == null || value.trim().isEmpty) {
-                                  return 'Veuillez entrer un device code';
+                                  return 'Please enter a device code';
                                 }
                                 return null;
                               },
@@ -365,7 +367,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                   backgroundColor: Colors.green,
                                   foregroundColor: Colors.white,
                                 ),
-                                child: const Text("Valider"),
+                                child: const Text("Validate"),
                               )
                             ),
                             const SizedBox(height: 24),
@@ -375,20 +377,20 @@ class _SettingsPageState extends State<SettingsPage> {
                               controller: _apiUrlController,
                               enabled: false,
                               decoration: const InputDecoration(
-                                labelText: 'URL de l\'API',
+                                labelText: 'API Base URL',
                                 border: OutlineInputBorder(),
                                 prefixIcon: Icon(Icons.link),
-                                hintText: 'http://10.0.2.2:8000',
+                                hintText: 'https://mybaseurl.com',
                               ),
                               keyboardType: TextInputType.url,
                               validator: (value) {
                                 if (value == null || value.trim().isEmpty) {
-                                  return 'Veuillez entrer l\'URL de l\'API';
+                                  return 'Please enter the API URL';
                                 }
                                 final uri = Uri.tryParse(value.trim());
                                 if (uri == null ||
                                     (!uri.hasScheme || !uri.hasAuthority)) {
-                                  return 'URL invalide ';
+                                  return 'Invalid URL';
                                 }
                                 return null;
                               },
@@ -398,15 +400,15 @@ class _SettingsPageState extends State<SettingsPage> {
                               controller: _databaseNameController,
                               enabled: false,
                               decoration: const InputDecoration(
-                                labelText: 'Nom de la base de donnée',
+                                labelText: 'Database Name',
                                 border: OutlineInputBorder(),
                                 prefixIcon: Icon(Icons.storage),
-                                hintText: 'ma-base-de-donnee',
+                                hintText: 'my_db_name',
                               ),
                               keyboardType: TextInputType.text,
                               validator: (value) {
                                 if (value == null || value.trim().isEmpty) {
-                                  return 'Veuillez entrer un nom pour la base de donnée';
+                                  return 'Please enter a database name';
                                 }
                                 return null;
                               },
@@ -417,7 +419,7 @@ class _SettingsPageState extends State<SettingsPage> {
                               width: double.infinity,
                               child: ElevatedButton.icon(
                                 icon: const Icon(Icons.update),
-                                label: const Text('Modifier les paramètres'),
+                                label: const Text('Modify Settings'),
                                 onPressed: showConfirmDialog,
                                 style: ElevatedButton.styleFrom(
                                   padding: const EdgeInsets.symmetric(
@@ -462,7 +464,7 @@ class _SettingsPageState extends State<SettingsPage> {
               child: OutlinedButton.icon(
                 icon: const Icon(Icons.logout, color: Colors.red),
                 label: const Text(
-                  'Déconnexion',
+                  'Logout',
                   style: TextStyle(color: Colors.red),
                 ),
                 onPressed: _logout,

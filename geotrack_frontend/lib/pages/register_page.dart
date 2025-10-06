@@ -25,7 +25,7 @@ class _RegisterPageState extends State<RegisterPage> {
       appBar: AppBar(
         backgroundColor: _primaryGreen,
         elevation: 0,
-        title: const Text('Créer un compte'),
+        title: const Text('Create an account'),
         foregroundColor: Colors.white,
       ),
       body: Center(
@@ -51,7 +51,7 @@ class _RegisterPageState extends State<RegisterPage> {
                   ),
                   const SizedBox(height: 24),
                   Text(
-                    'Nexor GeoTrack',
+                    'NexOR GeoTrack',
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
@@ -60,14 +60,14 @@ class _RegisterPageState extends State<RegisterPage> {
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    'Créez votre compte',
+                    'Create your account',
                     style: TextStyle(fontSize: 16, color: Colors.grey),
                   ),
                   const SizedBox(height: 24),
                   TextFormField(
                     controller: _emailController,
                     decoration: InputDecoration(
-                      labelText: 'Email',
+                      labelText: 'Username',
                       labelStyle: TextStyle(color: _primaryGreen),
                       filled: true,
                       fillColor: _primaryGreen.withOpacity(0.08),
@@ -85,15 +85,15 @@ class _RegisterPageState extends State<RegisterPage> {
                       ),
                       prefixIcon: Icon(Icons.email, color: _primaryGreen),
                     ),
-                    keyboardType: TextInputType.emailAddress,
+                    keyboardType: TextInputType.text,
                     validator: (value) {
                       if (value == null || value.isEmpty) {
-                        return 'Veuillez entrer votre email';
+                        return 'Please enter your username';
                       }
                       if (!RegExp(
                         r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
                       ).hasMatch(value)) {
-                        return 'Email invalide';
+                        return 'Invalid username';
                       }
                       return null;
                     },
@@ -118,7 +118,7 @@ class _RegisterPageState extends State<RegisterPage> {
                                 color: Colors.white,
                               )
                               : const Text(
-                                'Créer le compte',
+                                'Create account',
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
@@ -132,7 +132,7 @@ class _RegisterPageState extends State<RegisterPage> {
                       Navigator.pop(context);
                     },
                     child: Text(
-                      'Déjà un compte ? Se connecter',
+                      'Already have an account? Sign in',
                       style: TextStyle(
                         color: _primaryGreen,
                         fontWeight: FontWeight.w600,
@@ -172,17 +172,17 @@ class _RegisterPageState extends State<RegisterPage> {
           context: context,
           builder: (BuildContext context) {
             return AlertDialog(
-              title: const Text('Compte créé avec succès'),
+              title: const Text('Account created successfully'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Votre compte a été créé avec succès.'),
+                  const Text('Your account has been created successfully.'),
                   const SizedBox(height: 16),
-                  Text('Code d\'accès: ${result['access_code']}'),
+                  Text('Access code: ${result['access_code']}'),
                   const SizedBox(height: 8),
                   const Text(
-                    'Important: Notez ce code car il ne sera plus affiché !',
+                    'Important: Write down this code as it will not be shown again!',
                     style: TextStyle(
                       color: Colors.orange,
                       fontWeight: FontWeight.bold,

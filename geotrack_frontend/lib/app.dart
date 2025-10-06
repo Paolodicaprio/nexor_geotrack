@@ -20,7 +20,7 @@ class GeoTrackApp extends StatelessWidget {
       ],
       child: MaterialApp(
         scaffoldMessengerKey: scaffoldMessengerKey,
-        title: 'Nexor GeoTrack',
+        title: 'NexOR GeoTrack',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           primarySwatch: Colors.blue,

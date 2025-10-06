@@ -5,6 +5,7 @@ import 'package:geotrack_frontend/models/config_model.dart';
 import 'package:geotrack_frontend/models/gps_data_model.dart';
 import 'package:geotrack_frontend/services/api_service.dart';
 import 'package:geotrack_frontend/services/permissions_service.dart';
+import 'package:geotrack_frontend/utils/constants.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:geotrack_frontend/services/auth_service.dart';
@@ -49,9 +50,10 @@ class _DashboardPageState extends State<DashboardPage>
   late TabController _tabController;
   late BuildContext rootContext;
 
-  int _collectInterval = 5;
-  int _syncInterval = 10;
-  int _configSyncInterval = 60; // Valeur par défaut en minutes
+// Valeur par défaut en minutes
+  int _collectInterval = Constants.defaultCollectionInterval ~/ 60;
+  int _syncInterval = Constants.defaultSendInterval ~/60;
+  int _configSyncInterval = Constants.defaultConfigSyncInterval;
 
 
   // Ajout des variables d'état pour les données
@@ -72,6 +74,7 @@ class _DashboardPageState extends State<DashboardPage>
     _loadHistoryData();
     _startPreferencesChecker();
     _initBackgroundService();
+    _checkDeviceCode();
   }
 
 
@@ -86,7 +89,7 @@ class _DashboardPageState extends State<DashboardPage>
     if (permissionResult.allGranted){
       await initializeBackgroundService();
     }else{
-      print('❌ Permissions refusées');
+      print('❌ Permissions denied');
     }
   }
 
@@ -114,24 +117,22 @@ class _DashboardPageState extends State<DashboardPage>
       barrierDismissible: false,
       builder:
           (context) => AlertDialog(
-            title: const Text('Permission requise'),
+            title: const Text('Permission Required'),
             content: const Text(
-              'Pour continuer la collecte GPS même lorsque l\'application est fermée, '
-              'vous devez autoriser l\'accès à la localisation en arrière-plan.\n\n'
-              'Cette fonctionnalité est essentielle pour le suivi continu.',
+              'To continue GPS collection even when the app is closed, '
+              'you must allow background location access.\n\n'
+              'This feature is essential for continuous tracking.',
             ),
             actions: [
               TextButton(
                 onPressed: () {
                   Navigator.of(rootContext).pop();
-                  // L'utilisateur refuse - continuer sans permission background
                 },
-                child: const Text('Refuser'),
+                child: const Text('Deny'),
               ),
               TextButton(
                 onPressed: () async {
                   Navigator.of(rootContext).pop();
-                  // Demander la permission background
                   final bgPermission;
                   if (actualPermission == LocationPermission.whileInUse) {
                      bgPermission =await Permission.locationAlways.request();
@@ -140,30 +141,26 @@ class _DashboardPageState extends State<DashboardPage>
                   }
 
                   if (bgPermission == LocationPermission.always || bgPermission==PermissionStatus.granted ) {
-                    // Permission accordée
                     if (mounted) {
                       ScaffoldMessenger.of(rootContext).showSnackBar(
                         const SnackBar(
-                          content: Text('Permission background accordée'),
+                          content: Text('Background permission granted'),
                           backgroundColor: Colors.green,
                         ),
                       );
                     }
                   } else {
-                    // Permission refusée
                     if (mounted) {
                       ScaffoldMessenger.of(rootContext).showSnackBar(
                         const SnackBar(
-                          content: Text(
-                            'Permission background refusée - la collecte s\'arrêtera quand l\'app est fermée',
-                          ),
+                          content: Text('Background permission denied - collection will stop when the app is closed'),
                           backgroundColor: Colors.orange,
                         ),
                       );
                     }
                   }
                 },
-                child: const Text('Autoriser'),
+                child: const Text('Allow'),
               ),
             ],
           ),
@@ -171,26 +168,18 @@ class _DashboardPageState extends State<DashboardPage>
   }
 
   Future<void> _initIntervalsAndTimers() async {
-    // Attendre que la configuration soit chargée
     while (_currentConfig == null && _configLoading) {
       await Future.delayed(const Duration(milliseconds: 100));
     }
 
-    // Utiliser les valeurs de configuration ou les valeurs par défaut
     final collectInterval =
-        _currentConfig?.collectionInterval ?? 300; // Secondes
-    final syncInterval = _currentConfig?.sendInterval ?? 600; // Secondes
-    final configSyncInterval = _currentConfig?.configSyncInterval ?? 60; // Minutes
+        _currentConfig?.collectionInterval ?? Constants.defaultCollectionInterval; // Secondes
+    final syncInterval = _currentConfig?.sendInterval ?? Constants.defaultSendInterval; // Secondes
+    final configSyncInterval = _currentConfig?.configSyncInterval ?? Constants.defaultConfigSyncInterval; // Minutes
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(
-      'collect_interval',
-      collectInterval ~/ 60,
-    ); // Convertir en minutes
-    await prefs.setInt(
-      'sync_interval',
-      syncInterval ~/ 60,
-    ); // Convertir en minutes
+    await prefs.setInt('collect_interval', collectInterval ~/ 60);
+    await prefs.setInt('sync_interval', syncInterval ~/ 60);
     await prefs.setInt('config_sync_interval', configSyncInterval);
 
     setState(() {
@@ -203,7 +192,6 @@ class _DashboardPageState extends State<DashboardPage>
       _nextConfigSync = DateTime.now().add(Duration(minutes: _configSyncInterval));
     });
 
-    // Première collecte dès l'ouverture
     await _autoCollect();
     await _loadPendingData();
     await _loadHistoryData();
@@ -240,22 +228,22 @@ class _DashboardPageState extends State<DashboardPage>
     } catch (e) {
       print('❌ Error loading config: $e');
 
-      // Gestion spécifique du token expiré
       if (e.toString().contains('401') ||
-          e.toString().contains('Token expiré')) {
+          e.toString().contains('Token expired')) {
         _handleTokenExpired();
         return;
       }
 
-      // Utiliser les valeurs par défaut si autre erreur
       final prefs = await SharedPreferences.getInstance();
       setState(() {
-        _collectInterval = prefs.getInt('collect_interval') ?? 5;
-        _syncInterval = prefs.getInt('sync_interval') ?? 10;
+        _collectInterval = prefs.getInt('collect_interval') ?? Constants.defaultCollectionInterval ~/60;
+        _syncInterval = prefs.getInt('sync_interval') ?? Constants.defaultSendInterval ~/60;
+        _configSyncInterval = prefs.getInt('config_sync_interval') ?? Constants.defaultConfigSyncInterval;
         _nextCollection = DateTime.now().add(
           Duration(minutes: _collectInterval),
         );
         _nextSync = DateTime.now().add(Duration(minutes: _syncInterval));
+        _nextConfigSync = DateTime.now().add(Duration(minutes: _configSyncInterval));
       });
     } finally {
       setState(() => _configLoading = false);
@@ -267,7 +255,7 @@ class _DashboardPageState extends State<DashboardPage>
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Session expirée - Redirection...'),
+        content: Text('Session expired - Redirecting...'),
         backgroundColor: Colors.orange,
         duration: Duration(seconds: 2),
       ),
@@ -283,9 +271,9 @@ class _DashboardPageState extends State<DashboardPage>
   Future<void> _loadIntervals() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _collectInterval = prefs.getInt('collect_interval') ?? 5;
-      _syncInterval = prefs.getInt('sync_interval') ?? 10;
-      _configSyncInterval = prefs.getInt('config_sync_interval') ?? 60;
+      _collectInterval = prefs.getInt('collect_interval') ?? Constants.defaultCollectionInterval ~/60;
+      _syncInterval = prefs.getInt('sync_interval') ?? Constants.defaultSendInterval ~/60;
+      _configSyncInterval = prefs.getInt('config_sync_interval') ?? Constants.defaultConfigSyncInterval;
     });
   }
 
@@ -321,11 +309,8 @@ class _DashboardPageState extends State<DashboardPage>
     final pendingData = await _storageService.getPendingGpsData();
     final syncedData = await _storageService.getSyncedGpsData();
 
-    // S'assurer que les données en attente ont synced: false
     final pendingWithStatus =
         pendingData.map((data) => data.copyWith(synced: false)).toList();
-
-    // S'assurer que les données synchronisées ont synced: true
     final syncedWithStatus =
         syncedData.map((data) => data.copyWith(synced: true)).toList();
 
@@ -349,12 +334,47 @@ class _DashboardPageState extends State<DashboardPage>
     _tabController.dispose();
     super.dispose();
   }
-
+ Future<void> _checkDeviceCode() async {
+    final deviceCode = await _storageService.getDeviceCode();
+    if (deviceCode!=null){
+      return;
+    }
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder:
+          (context) => AlertDialog(
+        title: const Text('Device Code Required'),
+        content: const Text(
+          'Please provide the device code on the parameters to be able to sync the data',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+            },
+            child: const Text('close'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SettingsPage()),
+              );
+            },
+            child: const Text('Go to Settings'),
+          ),
+        ],
+      ),
+    );
+ }
   void _startAutoCollect() {
     _collectTimer?.cancel();
     _collectTimer = Timer.periodic(Duration(minutes: _collectInterval), (
       timer,
     ) async {
+      print("--------collect from auto--------");
       await _autoCollect();
       setState(() {
         _nextCollection = DateTime.now().add(
@@ -386,7 +406,6 @@ class _DashboardPageState extends State<DashboardPage>
     });
   }
 
-  // Nouvelle méthode pour vérifier les changements de préférences
   void _startPreferencesChecker() {
     _prefsCheckTimer = Timer.periodic(const Duration(seconds: 2), (
       timer,
@@ -394,13 +413,14 @@ class _DashboardPageState extends State<DashboardPage>
       if (!mounted) return;
 
       final prefs = await SharedPreferences.getInstance();
-      final newCollectInterval = prefs.getInt('collect_interval') ?? 5;
-      final newSyncInterval = prefs.getInt('sync_interval') ?? 10;
+      final newCollectInterval = prefs.getInt('collect_interval') ?? Constants.defaultCollectionInterval ~/60;
+      final newSyncInterval = prefs.getInt('sync_interval') ?? Constants.defaultSendInterval ~/60;
+      final newConfigSyncInterval = prefs.getInt('config_sync_interval') ?? Constants.defaultConfigSyncInterval;
 
       if (newCollectInterval != _collectInterval ||
-          newSyncInterval != _syncInterval) {
+          newSyncInterval != _syncInterval || newConfigSyncInterval != _configSyncInterval) {
         print(
-          '🔄 Intervalles modifiés: $newCollectInterval min, $newSyncInterval min',
+          '🔄 Intervals changed: $newCollectInterval min, $newSyncInterval min, $newConfigSyncInterval min',
         );
         await _restartTimersWithNewIntervals();
       }
@@ -408,13 +428,13 @@ class _DashboardPageState extends State<DashboardPage>
   }
 
   void _startConfigSync() {
-    _configSyncTimer?.cancel(); // annule si déjà existant
+    _configSyncTimer?.cancel();
 
     _configSyncTimer = Timer.periodic(
       Duration(minutes: _configSyncInterval),
           (timer) async {
-        print('🔁 Rafraîchissement automatique de la configuration...');
-        await _loadConfig(); // recharge la config depuis le serveur
+        print('🔁 Automatic configuration refresh...');
+        await _loadConfig();
         setState(() {
           _nextConfigSync = DateTime.now().add(
             Duration(minutes: _configSyncInterval),
@@ -425,19 +445,16 @@ class _DashboardPageState extends State<DashboardPage>
   }
 
   Future<void> _restartTimersWithNewIntervals() async {
-    // D'abord charger les nouveaux intervalles depuis SharedPreferences
     await _loadIntervals();
 
     _collectTimer?.cancel();
     _syncTimer?.cancel();
     _configSyncTimer?.cancel();
 
-    // Redémarrer les timers avec les nouveaux intervalles
     _startAutoCollect();
     _startAutoSync();
     _startConfigSync();
 
-    // Mettre à jour l'interface
     setState(() {
       _nextCollection = DateTime.now().add(Duration(minutes: _collectInterval));
       _nextSync = DateTime.now().add(Duration(minutes: _syncInterval));
@@ -448,22 +465,18 @@ class _DashboardPageState extends State<DashboardPage>
 
   Future<void> _autoCollect() async {
     try {
-      // Vérifier les permissions background
       final permission = await Geolocator.checkPermission();
       if (permission != LocationPermission.always) {
         print(
-          '⚠️ Mode background non autorisé - collecte limitée à l\'app ouverte',
+          '⚠️ Background mode not authorized - collection limited to when app is open',
         );
-        // Continuer quand même la collecte pour l'app ouverte
       }
-      // Vérifier la localisation avant de collecter
       final isLocationEnabled = await Geolocator.isLocationServiceEnabled();
       if (!isLocationEnabled) {
         _showLocationWarning();
         return;
       }
 
-      // Vérifier les permissions
       final hasPermission = await _gpsService.checkPermission();
       if (!hasPermission) {
         _showPermissionWarning();
@@ -486,22 +499,22 @@ class _DashboardPageState extends State<DashboardPage>
         barrierDismissible: false,
         builder: (BuildContext context) {
           return AlertDialog(
-            title: const Text('Localisation désactivée'),
+            title: const Text('Location disabled'),
             content: const Text(
-              'La localisation de votre téléphone est désactivée. '
-              'Veuillez l\'activer pour permettre la collecte automatique des données GPS.',
+              'Your phone\'s location is disabled. '
+              'Please enable it to allow automatic GPS data collection.',
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Ignorer'),
+                child: const Text('Ignore'),
               ),
               TextButton(
                 onPressed: () async {
                   await Geolocator.openLocationSettings();
                   Navigator.of(context).pop();
                 },
-                child: const Text('Activer'),
+                child: const Text('Enable'),
               ),
             ],
           );
@@ -519,22 +532,22 @@ class _DashboardPageState extends State<DashboardPage>
         barrierDismissible: false,
         builder: (BuildContext context) {
           return AlertDialog(
-            title: const Text('Permission requise'),
+            title: const Text('Permission required'),
             content: const Text(
-              'L\'application a besoin de la permission de localisation '
-              'pour collecter les données GPS.',
+              'The application needs location permission '
+              'to collect GPS data.',
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Ignorer'),
+                child: const Text('Ignore'),
               ),
               TextButton(
                 onPressed: () async {
                   await Geolocator.requestPermission();
                   Navigator.of(context).pop();
                 },
-                child: const Text('Autoriser'),
+                child: const Text('Allow'),
               ),
             ],
           );
@@ -545,9 +558,7 @@ class _DashboardPageState extends State<DashboardPage>
 
   Future<void> _autoSync() async {
     try {
-      // Utilisation de la nouvelle méthode
       await AutoCollectService.syncGpsDataBackground();
-      // Recharger toutes les données après synchronisation
       await Future.wait([_loadStats(), _loadPendingData(), _loadHistoryData()]);
     } catch (e) {
       print('❌ Auto sync error: $e');
@@ -558,7 +569,7 @@ class _DashboardPageState extends State<DashboardPage>
     if (target == null) return 'N/A';
     final now = DateTime.now();
     final diff = target.difference(now);
-    if (diff.isNegative) return 'Maintenant';
+    if (diff.isNegative) return 'Now';
     if (diff.inMinutes < 1) return '${diff.inSeconds}s';
     if (diff.inMinutes < 60) return '${diff.inMinutes}min';
     return '${diff.inHours}h${diff.inMinutes.remainder(60)}min';
@@ -576,14 +587,14 @@ class _DashboardPageState extends State<DashboardPage>
           ]);
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(SnackBar(content: Text('Données rafraîchies')));
+          ).showSnackBar(const SnackBar(content: Text('Data refreshed')));
         },
         child: Icon(Icons.refresh),
         backgroundColor: Colors.green[700],
       ),
       appBar: AppBar(
         title: const Text(
-          'Nexor GeoTrack',
+          'NexOR GeoTrack',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         backgroundColor: Colors.green[700],
@@ -610,8 +621,8 @@ class _DashboardPageState extends State<DashboardPage>
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white70,
           tabs: const [
-            Tab(text: 'Tableau de bord', icon: Icon(Icons.dashboard)),
-            Tab(text: 'Historique', icon: Icon(Icons.history)),
+            Tab(text: 'Dashboard', icon: Icon(Icons.dashboard)),
+            Tab(text: 'History', icon: Icon(Icons.history)),
           ],
         ),
       ),
@@ -636,7 +647,7 @@ class _DashboardPageState extends State<DashboardPage>
           _buildStatsCards(),
           const SizedBox(height: 24),
           const Text(
-            'Données en attente de synchronisation',
+            'Data pending synchronization',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 16),
@@ -669,7 +680,7 @@ class _DashboardPageState extends State<DashboardPage>
                 Icon(Icons.check_circle, color: Colors.green, size: 48),
                 SizedBox(height: 8),
                 Text(
-                  'Toutes les données sont synchronisées',
+                  'All data is synchronized',
                   style: TextStyle(fontSize: 16, color: Colors.grey),
                   textAlign: TextAlign.center,
                 ),
@@ -699,7 +710,7 @@ class _DashboardPageState extends State<DashboardPage>
                   Icons.pending_actions,
                   color: Colors.orange,
                 ),
-                title: const Text('Données en attente'),
+                title: const Text('Pending data'),
                 trailing: Chip(
                   label: Text('${_pendingData.length}'),
                   backgroundColor: Colors.orange.withOpacity(0.2),
@@ -718,8 +729,7 @@ class _DashboardPageState extends State<DashboardPage>
                         '${data.lat.toStringAsFixed(6)}, ${data.lon.toStringAsFixed(6)}',
                         style: const TextStyle(fontSize: 14),
                       ),
-                      subtitle: Text(
-                        DateFormat('dd/MM HH:mm').format(data.timestamp),
+                      subtitle: Text("${data.timestamp.toUtc().toIso8601String().split('.').first}Z UTC",
                         style: const TextStyle(fontSize: 12),
                       ),
                       trailing: Icon(
@@ -747,7 +757,7 @@ class _DashboardPageState extends State<DashboardPage>
       return const Center(child: CircularProgressIndicator());
     }
     if (_historyData.isEmpty) {
-      return const Center(child: Text('Aucune donnée historique disponible'));
+      return const Center(child: Text('No historical data available'));
     }
 
     return RefreshIndicator(
@@ -777,12 +787,11 @@ class _DashboardPageState extends State<DashboardPage>
                 '${data.lat.toStringAsFixed(6)}, ${data.lon.toStringAsFixed(6)}',
                 style: const TextStyle(fontWeight: FontWeight.w500),
               ),
-              subtitle: Text(
-                DateFormat('dd/MM/yyyy HH:mm').format(data.timestamp),
+              subtitle: Text("${data.timestamp.toUtc().toIso8601String().split('.').first}Z UTC",
                 style: const TextStyle(fontSize: 13),
               ),
               trailing: Text(
-                isSynced ? 'Synchronisé' : 'En attente',
+                isSynced ? 'Synced' : 'Pending',
                 style: TextStyle(
                   color: isSynced ? Colors.green : Colors.orange,
                   fontWeight: FontWeight.bold,
@@ -812,7 +821,7 @@ class _DashboardPageState extends State<DashboardPage>
                     Icon(Icons.analytics, color: Colors.green),
                     SizedBox(width: 8),
                     Text(
-                      'Statistiques de Collecte',
+                      'Collection Statistics',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -823,26 +832,26 @@ class _DashboardPageState extends State<DashboardPage>
                 const SizedBox(height: 16),
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
-                  physics: const BouncingScrollPhysics(), // effet rebond iOS
+                  physics: const BouncingScrollPhysics(),
                   child: Row(
                       children: [
                         _buildStatCard(
-                          '📦 En attente',
+                          '📦 Pending',
                           '${_stats['pending_count'] ?? 0}',
                           Colors.orange,
                         ),
                         _buildStatCard(
-                          '⏰ Prochaine collecte',
+                          '⏰ Next collection',
                           _formatCountdown(_nextCollection),
                           Colors.blue,
                         ),
                         _buildStatCard(
-                          '🔄 Prochaine sync',
+                          '🔄 Next sync',
                           _formatCountdown(_nextSync),
                           Colors.green,
                         ),
                         _buildStatCard(
-                            '⚙️ Prochaine config',
+                            '⚙️ Next config',
                             _formatCountdown(_nextConfigSync),
                             Colors.purple
                         ),
@@ -852,34 +861,6 @@ class _DashboardPageState extends State<DashboardPage>
                     )).toList(),
                   ),
                 ),
-                // SizedBox(
-                //   height: 140, // hauteur fixe pour les cards
-                //   child: ListView(
-                //     scrollDirection: Axis.horizontal,
-                //     children: [
-                //       _buildStatCard(
-                //         '📦 En attente',
-                //         '${_stats['pending_count'] ?? 0}',
-                //         Colors.orange,
-                //       ),
-                //       _buildStatCard(
-                //         '⏰ Prochaine collecte',
-                //         _formatCountdown(_nextCollection),
-                //         Colors.blue,
-                //       ),
-                //       _buildStatCard(
-                //         '🔄 Prochaine sync',
-                //         _formatCountdown(_nextSync),
-                //         Colors.green,
-                //       ),
-                //       _buildStatCard(
-                //           '⚙️ Prochaine config',
-                //           _formatCountdown(_nextConfigSync),
-                //           Colors.purple
-                //       ),
-                //     ],
-                //   ),
-                // ),
               ],
             ),
           ),
@@ -901,15 +882,15 @@ class _DashboardPageState extends State<DashboardPage>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Dernière collecte',
+                        'Last collection',
                         style: TextStyle(fontSize: 14, color: Colors.grey),
                       ),
                       Text(
                         _stats['last_collection'] != null
-                            ? DateFormat(
-                              'dd/MM/yyyy HH:mm',
-                            ).format(_stats['last_collection'])
-                            : 'Jamais', // Ce texte devrait maintenant disparaître après première collecte
+                            ? "${DateFormat(
+                          'dd/MM/yyyy HH:mm',
+                        ).format(_stats['last_collection'].toUtc())} UTC"
+                            : 'Never',
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,

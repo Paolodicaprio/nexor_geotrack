@@ -25,7 +25,7 @@ class _ForgotPinPageState extends State<ForgotPinPage> {
       appBar: AppBar(
         backgroundColor: _primaryGreen,
         elevation: 0,
-        title: const Text('Récupération de PIN'),
+        title: const Text('PIN Recovery'),
         foregroundColor: Colors.white,
       ),
       body: Center(
@@ -40,7 +40,7 @@ class _ForgotPinPageState extends State<ForgotPinPage> {
                   Icon(Icons.lock_reset, size: 80, color: _primaryGreen),
                   const SizedBox(height: 24),
                   Text(
-                    'Réinitialisation du PIN',
+                    'PIN Reset',
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
@@ -49,7 +49,7 @@ class _ForgotPinPageState extends State<ForgotPinPage> {
                   ),
                   const SizedBox(height: 16),
                   const Text(
-                    'Entrez votre email pour recevoir un nouveau PIN',
+                    'Enter your email to receive a new PIN',
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 16, color: Colors.grey),
                   ),
@@ -78,12 +78,12 @@ class _ForgotPinPageState extends State<ForgotPinPage> {
                     keyboardType: TextInputType.emailAddress,
                     validator: (value) {
                       if (value == null || value.isEmpty) {
-                        return 'Veuillez entrer votre email';
+                        return 'Please enter your email';
                       }
                       if (!RegExp(
                         r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
                       ).hasMatch(value)) {
-                        return 'Email invalide';
+                        return 'Invalid email';
                       }
                       return null;
                     },
@@ -108,7 +108,7 @@ class _ForgotPinPageState extends State<ForgotPinPage> {
                                 color: Colors.white,
                               )
                               : const Text(
-                                'Envoyer un nouveau PIN',
+                                'Send a new PIN',
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
@@ -122,7 +122,7 @@ class _ForgotPinPageState extends State<ForgotPinPage> {
                       Navigator.pop(context);
                     },
                     child: Text(
-                      'Retour à la connexion',
+                      'Back to login',
                       style: TextStyle(
                         color: _primaryGreen,
                         fontWeight: FontWeight.w600,

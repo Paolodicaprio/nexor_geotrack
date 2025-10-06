@@ -20,7 +20,7 @@ Future<void> initializeBackgroundService() async {
       isForegroundMode: true,
       notificationChannelId: 'geotrack_channel',
       initialNotificationTitle: 'GeoTrack Service',
-      initialNotificationContent: 'Service de collecte GPS en cours...',
+      initialNotificationContent: 'GPS collection service in progress...',
       foregroundServiceNotificationId: 888,
     ),
     iosConfiguration: IosConfiguration(
@@ -53,16 +53,16 @@ void onStart(ServiceInstance service) async {
     // Afficher une notif tout de suite
     await NotificationService.showPersistentNotification(
       title: "GeoTrack Service",
-      content: "Initialisation en cours...",
+      content: "Active GPS collection service",
     );
 
     // Gérer les events foreground/background
     service.on('setAsForeground').listen((event) {
       service.setAsForegroundService();
-      NotificationService.showPersistentNotification(
-        title: "GeoTrack Service",
-        content: "Service de collecte GPS actif",
-      );
+      // NotificationService.showPersistentNotification(
+      //   title: "GeoTrack Service",
+      //   content: "Service de collecte GPS actif",
+      // );
     });
 
     service.on('setAsBackground').listen((event) {
@@ -73,6 +73,10 @@ void onStart(ServiceInstance service) async {
   // Gérer l’arrêt du service
   service.on('stopService').listen((event) {
     service.stopSelf();
+    NotificationService.showPersistentNotification(
+      title: "GeoTrack Service",
+      content: "GPS collection service stopped",
+    );
   });
 
   // Ensuite seulement charger ton .env
@@ -91,19 +95,15 @@ void startPeriodicTasks(ServiceInstance service) async {
   final prefs = await SharedPreferences.getInstance();
 
   // Timer pour la collecte GPS (intervalle configuré)
-  Timer.periodic(Duration(minutes: prefs.getInt('collect_interval') ?? Constants.defaultCollectionInterval), (timer) async {
+  Timer.periodic(Duration(minutes: prefs.getInt('collect_interval') ?? (Constants.defaultCollectionInterval ~/60)), (timer) async {
     if (service is AndroidServiceInstance) {
       if (await service.isForegroundService()) {
+        print("--------collect from foreground service--------");
+
         await AutoCollectService.collectGpsDataBackground();
-        await NotificationService.showPersistentNotification(
-          title: "GeoTrack - Collecte GPS",
-          content: "Dernière collecte: ${DateTime.now().toString().substring(11, 16)}",
-        );
-        // Mettre à jour la notification
-        // service.setForegroundNotificationInfo(
-        //   title: "GeoTrack Service",
-        //   content:
-        //       "Dernière collecte: ${DateTime.now().toString().substring(11, 16)}",
+        // await NotificationService.showPersistentNotification(
+        //   title: "GeoTrack - Collecte GPS",
+        //   content: "Dernière collecte: ${DateTime.now().toString().substring(11, 16)}",
         // );
       }
     } else {
@@ -112,7 +112,7 @@ void startPeriodicTasks(ServiceInstance service) async {
   });
 
   // Timer pour la synchronisation (intervalle configuré)
-  Timer.periodic(Duration(minutes: prefs.getInt('sync_interval') ?? Constants.defaultSendInterval), (
+  Timer.periodic(Duration(minutes: prefs.getInt('sync_interval') ?? (Constants.defaultSendInterval ~/60)), (
       timer,
       ) async {
     await AutoCollectService.syncGpsDataBackground();
@@ -120,11 +120,11 @@ void startPeriodicTasks(ServiceInstance service) async {
     // Mettre à jour la notification après synchronisation
     if (service is AndroidServiceInstance &&
         await service.isForegroundService()) {
-      NotificationService.showPersistentNotification(
-        title: "GeoTrack Service",
-        content:
-        "Dernière sync: ${DateTime.now().toString().substring(11, 16)}",
-      );
+      // NotificationService.showPersistentNotification(
+      //   title: "GeoTrack Service",
+      //   content:
+      //   "Dernière sync: ${DateTime.now().toString().substring(11, 16)}",
+      // );
     }
   });
 
@@ -136,11 +136,11 @@ void startPeriodicTasks(ServiceInstance service) async {
     // Mettre à jour la notification après synchronisation
     if (service is AndroidServiceInstance &&
         await service.isForegroundService()) {
-      NotificationService.showPersistentNotification(
-        title: "GeoTrack Service",
-        content:
-        "Dernière Synchronisation de config: ${DateTime.now().toString().substring(11, 16)}",
-      );
+      // NotificationService.showPersistentNotification(
+      //   title: "GeoTrack Service",
+      //   content:
+      //   "Dernière Synchronisation de config: ${DateTime.now().toString().substring(11, 16)}",
+      // );
     }
   });
 }
