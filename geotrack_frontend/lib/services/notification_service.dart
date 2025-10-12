@@ -50,8 +50,8 @@ class NotificationService {
       CHANNEL_ID,
       'GeoTrack Service',
       channelDescription: 'Service de collecte GPS en arrière-plan',
-      importance: Importance.defaultImportance,
-      priority: Priority.defaultPriority  ,
+      importance: Importance.high,
+      priority: Priority.high  ,
       ongoing: true, // Notification persistante
       autoCancel: false,
       playSound: false,

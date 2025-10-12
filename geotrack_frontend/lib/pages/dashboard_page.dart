@@ -177,10 +177,7 @@ class _DashboardPageState extends State<DashboardPage>
     final syncInterval = _currentConfig?.sendInterval ?? Constants.defaultSendInterval; // Secondes
     final configSyncInterval = _currentConfig?.configSyncInterval ?? Constants.defaultConfigSyncInterval; // Minutes
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('collect_interval', collectInterval ~/ 60);
-    await prefs.setInt('sync_interval', syncInterval ~/ 60);
-    await prefs.setInt('config_sync_interval', configSyncInterval);
+    await _storageService.saveConfig( Config(collectionInterval: collectInterval, sendInterval: syncInterval, configSyncInterval: configSyncInterval));
 
     setState(() {
       _collectInterval =
@@ -206,11 +203,11 @@ class _DashboardPageState extends State<DashboardPage>
     try {
       final apiService = ApiService();
       final config = await apiService.getConfig();
-
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt('collect_interval', config.collectionInterval ~/ 60);
-      await prefs.setInt('sync_interval', config.sendInterval ~/ 60);
-      await prefs.setInt('config_sync_interval', config.configSyncInterval);
+      await _storageService.saveConfig(config);
+      // final prefs = await SharedPreferences.getInstance();
+      // await prefs.setInt('collect_interval', config.collectionInterval ~/ 60);
+      // await prefs.setInt('sync_interval', config.sendInterval ~/ 60);
+      // await prefs.setInt('config_sync_interval', config.configSyncInterval);
 
       setState(() {
         _currentConfig = config;
@@ -234,11 +231,12 @@ class _DashboardPageState extends State<DashboardPage>
         return;
       }
 
-      final prefs = await SharedPreferences.getInstance();
+      final conf =await _storageService.getConfig();
       setState(() {
-        _collectInterval = prefs.getInt('collect_interval') ?? Constants.defaultCollectionInterval ~/60;
-        _syncInterval = prefs.getInt('sync_interval') ?? Constants.defaultSendInterval ~/60;
-        _configSyncInterval = prefs.getInt('config_sync_interval') ?? Constants.defaultConfigSyncInterval;
+        //en minutes
+        _collectInterval = conf.collectionInterval ~/60;
+        _syncInterval = conf.sendInterval ~/60;
+        _configSyncInterval = conf.configSyncInterval;
         _nextCollection = DateTime.now().add(
           Duration(minutes: _collectInterval),
         );
@@ -269,11 +267,12 @@ class _DashboardPageState extends State<DashboardPage>
   }
 
   Future<void> _loadIntervals() async {
-    final prefs = await SharedPreferences.getInstance();
+    final conf =await _storageService.getConfig();
     setState(() {
-      _collectInterval = prefs.getInt('collect_interval') ?? Constants.defaultCollectionInterval ~/60;
-      _syncInterval = prefs.getInt('sync_interval') ?? Constants.defaultSendInterval ~/60;
-      _configSyncInterval = prefs.getInt('config_sync_interval') ?? Constants.defaultConfigSyncInterval;
+      //en minutes
+      _collectInterval = conf.collectionInterval ~/60;
+      _syncInterval = conf.sendInterval ~/60;
+      _configSyncInterval = conf.configSyncInterval;
     });
   }
 
@@ -412,10 +411,10 @@ class _DashboardPageState extends State<DashboardPage>
     ) async {
       if (!mounted) return;
 
-      final prefs = await SharedPreferences.getInstance();
-      final newCollectInterval = prefs.getInt('collect_interval') ?? Constants.defaultCollectionInterval ~/60;
-      final newSyncInterval = prefs.getInt('sync_interval') ?? Constants.defaultSendInterval ~/60;
-      final newConfigSyncInterval = prefs.getInt('config_sync_interval') ?? Constants.defaultConfigSyncInterval;
+     final conf = await _storageService.getConfig();
+      final newCollectInterval = conf.collectionInterval ~/ 60;
+      final newSyncInterval = conf.sendInterval ~/60;
+      final newConfigSyncInterval = conf.configSyncInterval;
 
       if (newCollectInterval != _collectInterval ||
           newSyncInterval != _syncInterval || newConfigSyncInterval != _configSyncInterval) {

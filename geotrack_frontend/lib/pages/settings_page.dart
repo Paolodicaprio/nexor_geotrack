@@ -41,11 +41,7 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       final apiService = ApiService();
       final config = await apiService.getConfig();
-
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt('collect_interval', config.collectionInterval ~/ 60);
-      await prefs.setInt('sync_interval', config.sendInterval ~/ 60);
-      await prefs.setInt('config_sync_interval', config.configSyncInterval);
+      await StorageService().saveConfig(config);
 
       setState(() {
         _collectIntervalController.text = config.collectionInterval.toString();
@@ -54,13 +50,11 @@ class _SettingsPageState extends State<SettingsPage> {
       });
     } catch (e) {
       // En cas d'erreur, charger depuis SharedPreferences
-      final prefs = await SharedPreferences.getInstance();
+     final conf = await StorageService().getConfig();
       setState(() {
-        _collectIntervalController.text =
-            (prefs.getInt('collect_interval') ?? Constants.defaultCollectionInterval).toString();
-        _syncIntervalController.text =
-            (prefs.getInt('sync_interval') ?? Constants.defaultSendInterval).toString();
-        _configSyncIntervalController.text =(prefs.getInt('config_sync_interval')?? Constants.defaultSendInterval).toString();
+        _collectIntervalController.text =conf.collectionInterval.toString();
+        _syncIntervalController.text =conf.sendInterval.toString();
+        _configSyncIntervalController.text =conf.configSyncInterval.toString();
       });
     } finally {
       setState(() => _configLoading = false);
@@ -84,13 +78,7 @@ class _SettingsPageState extends State<SettingsPage> {
       try {
         final apiService = ApiService();
         final newConfig = await apiService.getConfig();
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setInt(
-          'collect_interval',
-          newConfig.collectionInterval ~/ 60,
-        );
-        await prefs.setInt('sync_interval', newConfig.sendInterval ~/ 60);
-        await prefs.setInt('config_sync_interval', newConfig.configSyncInterval);
+       await StorageService().saveConfig(newConfig);
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -115,22 +103,6 @@ class _SettingsPageState extends State<SettingsPage> {
     if (!mounted) return;
     Navigator.pushReplacementNamed(context, '/login');
   }
-
-  // Future<void> _changeApiSetting() async {
-  //   if (_apiFormKey.currentState!.validate()) {
-  //     await StorageService().saveCustomUrl(_apiUrlController.text);
-  //     setState(() {
-  //       _showApiSection = false;
-  //     });
-  //     if (!mounted) return;
-  //     ScaffoldMessenger.of(context).showSnackBar(
-  //       const SnackBar(
-  //         content: Text('Paramètres modifiée avec succès'),
-  //         backgroundColor: Colors.green,
-  //       ),
-  //     );
-  //   }
-  // }
 
   Future<void> showConfirmDialog()async{
     await showDialog(
@@ -171,21 +143,6 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     );
   }
-
-  // Future<void> _clearApiUrl() async {
-  //   await StorageService().clearCustomUrl();
-  //   setState(() {
-  //     _showApiSection = false;
-  //   });
-  //   await _loadApiSettings(); // Recharger l'URL par défaut
-  //   if (!mounted) return;
-  //   ScaffoldMessenger.of(context).showSnackBar(
-  //     const SnackBar(
-  //       content: Text('URL réinitialisée avec succès'),
-  //       backgroundColor: Colors.green,
-  //     ),
-  //   );
-  // }
 
   @override
   Widget build(BuildContext context) {
@@ -258,16 +215,6 @@ class _SettingsPageState extends State<SettingsPage> {
                           prefixIcon: Icon(Icons.sync),
                         ),
                         keyboardType: TextInputType.number,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter an interval';
-                          }
-                          final val = int.tryParse(value);
-                          if (val == null || val < 1) {
-                            return 'Invalid interval (min. 1 minute)';
-                          }
-                          return null;
-                        },
                       ),
                       const SizedBox(height: 16),
                       SizedBox(
@@ -430,24 +377,6 @@ class _SettingsPageState extends State<SettingsPage> {
                                 ),
                               ),
                             ),
-                            // const SizedBox(height: 8),
-                            // SizedBox(
-                            //   width: double.infinity,
-                            //   child: ElevatedButton.icon(
-                            //     icon: const Icon(Icons.clear),
-                            //     label: const Text(
-                            //       'Revenir à l\'URL par défaut',
-                            //     ),
-                            //     onPressed: _clearApiUrl,
-                            //     style: ElevatedButton.styleFrom(
-                            //       padding: const EdgeInsets.symmetric(
-                            //         vertical: 16,
-                            //       ),
-                            //       backgroundColor: Colors.orange,
-                            //       foregroundColor: Colors.white,
-                            //     ),
-                            //   ),
-                            // ),
                           ],
                         ),
                       ),

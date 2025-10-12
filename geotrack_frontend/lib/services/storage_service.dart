@@ -222,20 +222,26 @@ class StorageService {
   Future<void> deleteDeviceId() async {
     await _secureStorage.delete(key: _deviceIdKey);
   }
-  // les configurations sont enregistré en minutes.
-  // configSyncInterval est deja en minute donc pas besoin de conversion
+
   Future<void> saveConfig(Config config) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt("collect_interval", config.collectionInterval);
-    await prefs.setInt("sync_interval", config.sendInterval);
-    await prefs.setInt("config_sync_interval",config.configSyncInterval);
+    await prefs.setString(_configKey, json.encode(config.toJson()));
+    // await prefs.setInt("collect_interval", config.collectionInterval);
+    // await prefs.setInt("sync_interval", config.sendInterval);
+    // await prefs.setInt("config_sync_interval",config.configSyncInterval);
   }
 
-  Future<Config> getConfig()async{
+  Future<Config> getConfig()  async{
     final prefs = await SharedPreferences.getInstance();
-    final collectInterval = prefs.getInt("collect_interval");
-    final syncInterval = prefs.getInt("sync_interval");
-    final configSyncInterval = prefs.getInt("config_sync_interval");
-    return Config(collectionInterval: collectInterval!, sendInterval: syncInterval!, configSyncInterval: configSyncInterval!, id:0);
+    final jsonConfig = prefs.getString(_configKey);
+    if (jsonConfig ==null){
+      return Config.fromDefault();
+    }
+    try {
+      final config = Config.fromJson(json.decode(jsonConfig));
+      return config;
+    } catch (e) {
+     throw Exception('Error while decoding config: $e');
+    }
   }
 }

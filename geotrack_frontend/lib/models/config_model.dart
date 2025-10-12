@@ -6,8 +6,7 @@ class Config {
   final int sendInterval;       // en seconde
   final int configSyncInterval; // en minute
 
-  Config({
-    required this.id,
+  Config({this.id = 0,
     required this.collectionInterval,
     required this.sendInterval,
     required this.configSyncInterval
@@ -29,5 +28,14 @@ class Config {
       sendInterval: json['position_sync_interval'] ?? Constants.defaultSendInterval,
       configSyncInterval: json['config_sync_interval'] ?? Constants.defaultConfigSyncInterval
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'position_sampling_interval': collectionInterval,
+      'position_sync_interval': sendInterval,
+      'config_sync_interval': configSyncInterval
+    };
   }
 }
