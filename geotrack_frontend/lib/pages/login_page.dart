@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geotrack_frontend/pages/register_page.dart';
 import 'package:geotrack_frontend/services/gps_service.dart';
@@ -7,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:geotrack_frontend/services/auth_service.dart';
 import 'package:geotrack_frontend/pages/forgot_pin_page.dart';
 
+import '../services/auto_collect_service.dart';
 import '../utils/db_name_extractor.dart';
 
 class LoginPage extends StatefulWidget {
@@ -435,7 +437,25 @@ class _LoginPageState extends State<LoginPage> {
       // App permission denied
       await _showLocationPermissionDialog();
     } else {
-      // Everything is OK, redirect
+      // Everything is OK, restart all the timer to use new params
+      try{
+        await AutoCollectService.refetchConfig();
+      }catch(e){
+        if(mounted){
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Failed to fetch config. Default config loaded"),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          );
+        }
+      }
+      final bgService = FlutterBackgroundService();
+      bgService.invoke("restart_tasks");
       Navigator.pushReplacementNamed(context, '/dashboard');
     }
   }

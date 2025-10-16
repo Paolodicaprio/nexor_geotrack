@@ -62,6 +62,7 @@ class SyncService {
             duration: const Duration(seconds: 5),
           ));
           print('❌ Failed to sync GPS data list: $e');
+          throw e;
         }
       }
       // _apiService.resetErrorShown();
@@ -76,6 +77,7 @@ class SyncService {
       print('✅ Sync completed: ${successfullySynced.length} data synced');
     } catch (e) {
       print('❌ Sync failed: $e');
+      rethrow;
     }
   }
 

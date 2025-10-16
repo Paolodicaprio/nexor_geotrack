@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:geotrack_frontend/models/config_model.dart';
 import 'package:geotrack_frontend/services/api_service.dart';
 import 'package:geotrack_frontend/services/storage_service.dart';
@@ -32,6 +33,7 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   void initState() {
     super.initState();
+    StorageService().reloadStorage();
     _loadSettings();
     _loadApiSettings();
   }
@@ -78,7 +80,10 @@ class _SettingsPageState extends State<SettingsPage> {
       try {
         final apiService = ApiService();
         final newConfig = await apiService.getConfig();
-       await StorageService().saveConfig(newConfig);
+        if( !newConfig.hasSameIntervals(await StorageService().getConfig())){
+          await StorageService().saveConfig(newConfig);
+          FlutterBackgroundService().invoke("config_changed");
+        }
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

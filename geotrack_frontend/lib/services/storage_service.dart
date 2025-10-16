@@ -19,6 +19,10 @@ class StorageService {
   final String _databaseNameKey = 'database_name';
   final String _configKey = 'config';
 
+  void reloadStorage() async{
+     SharedPreferences prefs = await SharedPreferences.getInstance();
+     await prefs.reload();
+  }
   Future<void> saveToken(String token) async {
     print('💾 Saving token: ${token}...');
     await _secureStorage.write(key: _cookieKey, value: token);
@@ -243,5 +247,16 @@ class StorageService {
     } catch (e) {
      throw Exception('Error while decoding config: $e');
     }
+  }
+
+  Future<DateTime?> getLastCollectionTime() async{
+    final prefs = await SharedPreferences.getInstance();
+    final String? last_collect = await prefs.getString("last_collection");
+    return last_collect !=null ? DateTime.parse(last_collect) : null;
+  }
+
+  Future<void> setLastCollectionTime(DateTime last_collect) async{
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString("last_collection",last_collect.toIso8601String());
   }
 }

@@ -38,4 +38,10 @@ class Config {
       'config_sync_interval': configSyncInterval
     };
   }
+  /// Compare deux configs sur les 3 intervalles
+  bool hasSameIntervals(Config other) {
+    return collectionInterval == other.collectionInterval &&
+        sendInterval == other.sendInterval &&
+        configSyncInterval == other.configSyncInterval;
+  }
 }

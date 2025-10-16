@@ -22,7 +22,27 @@ Future<void> main() async {
   // Initialiser le service background uniquement sur les plateformes mobiles
   if (!kIsWeb) {
     await NotificationService.initialize();
+    final service = FlutterBackgroundService();
+
+    // Configuration du service
+    await service.configure(
+      androidConfiguration: AndroidConfiguration(
+        onStart: onStart,
+        autoStart: false,
+        isForegroundMode: true,
+        notificationChannelId: NotificationService.CHANNEL_ID,
+        initialNotificationTitle: 'GeoTrack Service',
+        initialNotificationContent: 'GPS collection service in progress...',
+        foregroundServiceNotificationId: NotificationService.SERVICE_NOTIFICATION_ID,
+      ),
+      iosConfiguration: IosConfiguration(
+        autoStart: true,
+        onForeground: onStart,
+        onBackground: onIosBackground,
+      ),
+    );
   }
+
 
   runApp(const GeoTrackApp());
 }

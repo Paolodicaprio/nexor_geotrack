@@ -24,6 +24,7 @@ class AuthService with ChangeNotifier {
   int get failedAttempts => _failedAttempts;
   DateTime? get blockUntil => _blockUntil;
   String? get userEmail => _userEmail;
+  bool get hasToken => _token!=null && _token!.isNotEmpty;
 
   Future<LoginResponse> login(String username, String password) async {
     if (isBlocked()) {
@@ -201,7 +202,7 @@ class AuthService with ChangeNotifier {
 
   Future<void> logout() async {
     _isAuthenticated = false;
-    _token = null;
+    // _token = null;
     _failedAttempts = 0;
     _blockUntil = null;
     _userEmail = null;
@@ -261,16 +262,16 @@ class AuthService with ChangeNotifier {
   Future<bool> checkAuth() async {
     try {
       final token = await StorageService().getToken();
-      final email = await StorageService().getUserUsername();
+      final username = await StorageService().getUserUsername();
 
       print(
-        '🔐 Checking auth - Token: ${token != null ? "exists" : "null"}, Email: $email',
+        '🔐 Checking auth - Token: ${token != null ? "exists" : "null"},Username: $username',
       );
 
-      if (token == null || token.isEmpty || email == null || email.isEmpty) {
+      if (token == null || token.isEmpty || username == null || username.isEmpty) {
         print('❌ Auth failed: Token or email missing');
         _isAuthenticated = false;
-        _token = null;
+        // _token = null;
         _userEmail = null;
         notifyListeners();
         return false;
@@ -285,10 +286,10 @@ class AuthService with ChangeNotifier {
 
       // Token valide - restaurer la session
       _token = token;
-      _userEmail = email;
+      _userEmail = username;
       _isAuthenticated = true;
 
-      print('✅ Auth successful - User: $email');
+      print('✅ Auth successful - User: $username');
       notifyListeners();
       return true;
     } catch (e) {

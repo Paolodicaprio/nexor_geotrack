@@ -13,6 +13,7 @@ class AutoCollectService {
   static Future<void> collectGpsDataBackground() async {
     final service = AutoCollectService();
     try {
+
       // VÉRIFIER SI LA LOCALISATION EST ACTIVÉE
       final isLocationEnabled = await Geolocator.isLocationServiceEnabled();
       if (!isLocationEnabled) {
@@ -28,13 +29,9 @@ class AutoCollectService {
       }
       final location = await service._gpsService.getCurrentLocation();
       await service._storageService.savePendingGpsData(location);
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        'last_collection',
-        DateTime.now().toIso8601String(),
-      );
+      await service._storageService.setLastCollectionTime(DateTime.now());
 
-      print('📍 Donnée GPS collectée: ${location.lat}, ${location.lon}');
+      print('📍 Donnée GPS collectées: ${location.lat}, ${location.lon}');
     } catch (e) {
       print('❌ Erreur collecte GPS: $e');
     }
@@ -42,6 +39,7 @@ class AutoCollectService {
 
   static Future<void> syncGpsDataBackground() async {
     final service = AutoCollectService();
+    service._storageService.reloadStorage();
     try {
       final pendingCount = await service._syncService.getPendingSyncCount();
       if (pendingCount > 0) {
@@ -50,6 +48,7 @@ class AutoCollectService {
       }
     } catch (e) {
       print('❌ Erreur synchronisation: $e');
+      throw e;
     }
   }
 
@@ -77,7 +76,12 @@ class AutoCollectService {
   }
 
   static Future<void> refetchConfig()async{
-    final config = await ApiService().getConfig();
-    await StorageService().saveConfig(config);
+    try{
+      final config = await ApiService().getConfig();
+      await StorageService().saveConfig(config);
+    }catch(e){
+      print(e);
+     throw e;
+    }
   }
 }

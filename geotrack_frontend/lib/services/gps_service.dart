@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:geolocator/geolocator.dart';
 import 'package:geotrack_frontend/models/gps_data_model.dart';
 import 'package:geotrack_frontend/services/storage_service.dart';
@@ -37,6 +39,8 @@ class GpsService {
 
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.best,
+        // forceAndroidLocationManager: true,
+        timeLimit: const Duration(seconds: 10),
       );
       if (position.latitude < -90 ||
           position.latitude > 90 ||
@@ -51,6 +55,9 @@ class GpsService {
         timestamp: DateTime.now(),
       );
     } catch (e) {
+      if (e is TimeoutException){
+        Exception("Timout Error: Please enable connection or make sure you are outside to do offline localization");
+      }
       throw Exception('Failed to get location: $e');
     }
   }

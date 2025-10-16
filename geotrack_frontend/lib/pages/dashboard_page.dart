@@ -1,24 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:geotrack_frontend/models/config_model.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:geotrack_frontend/models/gps_data_model.dart';
-import 'package:geotrack_frontend/services/api_service.dart';
-import 'package:geotrack_frontend/services/permissions_service.dart';
-import 'package:geotrack_frontend/utils/constants.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:provider/provider.dart';
-import 'package:geotrack_frontend/services/auth_service.dart';
-import 'package:geotrack_frontend/services/gps_service.dart';
-import 'package:geotrack_frontend/services/sync_service.dart';
+
 import 'package:geotrack_frontend/services/storage_service.dart';
 import 'package:geotrack_frontend/widgets/connection_status.dart';
 import 'package:geotrack_frontend/pages/settings_page.dart';
 import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:geotrack_frontend/services/auto_collect_service.dart';
-
-import '../services/background_service.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({Key? key}) : super(key: key);
@@ -29,12 +17,7 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage>
     with TickerProviderStateMixin {
-  final GpsService _gpsService = GpsService();
-  final SyncService _syncService = SyncService();
   final StorageService _storageService = StorageService();
-  Config? _currentConfig;
-  bool _configLoading = false;
-
   Map<String, dynamic> _stats = {};
   Timer? _collectTimer;
   Timer? _syncTimer;
@@ -42,252 +25,113 @@ class _DashboardPageState extends State<DashboardPage>
   Timer? _prefsCheckTimer;
   Timer? _configSyncTimer;
 
+  Timer? _uiTimer;
 
   DateTime? _nextCollection;
   DateTime? _nextSync;
   DateTime? _nextConfigSync;
 
+  // Les durées restantes que nous allons afficher
+  Duration _gpsCountdown = Duration.zero;
+  Duration _syncCountdown = Duration.zero;
+  Duration _configCountdown = Duration.zero;
+
   late TabController _tabController;
-  late BuildContext rootContext;
-
-// Valeur par défaut en minutes
-  int _collectInterval = Constants.defaultCollectionInterval ~/ 60;
-  int _syncInterval = Constants.defaultSendInterval ~/60;
-  int _configSyncInterval = Constants.defaultConfigSyncInterval;
-
 
   // Ajout des variables d'état pour les données
   List<GpsData> _pendingData = [];
   List<GpsData> _historyData = [];
-  bool _pendingLoading = true;
-  bool _historyLoading = true;
+  bool _pendingLoading = false;
+  bool _historyLoading = false;
+  StreamSubscription? _dataUpdatedSubscription;
+  StreamSubscription? _timerUpdatedSubscription;
+  StreamSubscription? _errorNotificationSubscription;
+
 
   @override
   void initState(){
     super.initState();
-    _checkBackgroundPermissions();
+    // 1. Écouter les mises à jour envoyées par le service de fond
+   _timerUpdatedSubscription =  FlutterBackgroundService().on('update_ui_timers').listen((data) {
+      if (data == null) return;
+      setState(() {
+        _nextCollection = data['nextGpsTime'] != null ? DateTime.parse(data['nextGpsTime']!) : null;
+        _nextSync = data['nextSyncTime'] != null ? DateTime.parse(data['nextSyncTime']!) : null;
+        _nextConfigSync = data['nextConfigSyncTime'] != null ? DateTime.parse(data['nextConfigSyncTime']!) : null;
+      });
+      _storageService.reloadStorage();
+    });
+
+    _dataUpdatedSubscription = FlutterBackgroundService().on('data_updated').listen((data) async {
+       if (data == null ) return;
+       if(data["task"] !=null){
+         setState(() {
+           _stats={
+             'pending_count':data['stats']['pending_count'],
+           'last_collection': data['stats']['last_collection'] != null ? DateTime.parse(data['stats']['last_collection']) : null,};
+           final pendingList = data["pendingData"] as List<dynamic>;
+           final allList = data["allData"] as List<dynamic>;
+           _pendingData = pendingList
+               .map((e) => GpsData.fromJson(Map<String, dynamic>.from(e)))
+               .toList();
+
+           _historyData = allList
+               .map((e) => GpsData.fromJson(Map<String, dynamic>.from(e)))
+               .toList();
+         });
+       }
+
+    });
+
+   _errorNotificationSubscription =  FlutterBackgroundService().on("error_notification").listen((data){
+       if (data !=null && data['error'] !=null){
+         ScaffoldMessenger.of(context).showSnackBar(
+             SnackBar(content: Text(data['error']),backgroundColor: Colors.redAccent,duration: Duration(seconds: 5),)
+         );
+       }
+     });
+
+    // 2. Lancer un timer local pour rafraîchir l'UI chaque seconde
+    _uiTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      updateCountdowns();
+    });
+
+    // 3. Demander les données actuelles au service au cas où il tourne déjà
+    FlutterBackgroundService().invoke('get_next_execution_times');
     _tabController = TabController(length: 2, vsync: this);
-    _initIntervalsAndTimers();
-    _loadStats();
-    _loadConfig();
-    _loadPendingData();
-    _loadHistoryData();
-    _startPreferencesChecker();
-    _initBackgroundService();
+    FlutterBackgroundService().invoke("get_dashboard_infos");
+    // _loadStats();
+    // _loadHistoryData();
+    // _loadPendingData();
     _checkDeviceCode();
   }
 
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    rootContext = context; // garde le contexte du widget principal
-  }
-
-  Future<void> _initBackgroundService() async{
-    PermissionResult permissionResult = await requestPermissions();
-    if (permissionResult.allGranted){
-      await initializeBackgroundService();
-    }else{
-      print('❌ Permissions denied');
-    }
-  }
-
-  Future<void> _checkBackgroundPermissions() async {
-
-    final permission = await Geolocator.checkPermission();
-    print(permission);
-    // Afficher la boîte de dialogue seulement si les permissions sont insuffisantes
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.whileInUse) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _showBackgroundPermissionDialog(permission);
-      });
-    }
-  }
-
-  Future<void> _showBackgroundPermissionDialog(actualPermission) async {
-    // Vérifier d'abord si la localisation est activée
-    if (!await Geolocator.isLocationServiceEnabled()) {
-      return; // Ne pas afficher la boîte si la localisation est désactivée
-    }
+  void updateCountdowns() {
     if (!mounted) return;
-    await showDialog(
-      context: rootContext,
-      barrierDismissible: false,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('Permission Required'),
-            content: const Text(
-              'To continue GPS collection even when the app is closed, '
-              'you must allow background location access.\n\n'
-              'This feature is essential for continuous tracking.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.of(rootContext).pop();
-                },
-                child: const Text('Deny'),
-              ),
-              TextButton(
-                onPressed: () async {
-                  Navigator.of(rootContext).pop();
-                  final bgPermission;
-                  if (actualPermission == LocationPermission.whileInUse) {
-                     bgPermission =await Permission.locationAlways.request();
-                  }else{
-                    bgPermission = await Geolocator.requestPermission();
-                  }
 
-                  if (bgPermission == LocationPermission.always || bgPermission==PermissionStatus.granted ) {
-                    if (mounted) {
-                      ScaffoldMessenger.of(rootContext).showSnackBar(
-                        const SnackBar(
-                          content: Text('Background permission granted'),
-                          backgroundColor: Colors.green,
-                        ),
-                      );
-                    }
-                  } else {
-                    if (mounted) {
-                      ScaffoldMessenger.of(rootContext).showSnackBar(
-                        const SnackBar(
-                          content: Text('Background permission denied - collection will stop when the app is closed'),
-                          backgroundColor: Colors.orange,
-                        ),
-                      );
-                    }
-                  }
-                },
-                child: const Text('Allow'),
-              ),
-            ],
-          ),
-    );
-  }
-
-  Future<void> _initIntervalsAndTimers() async {
-    while (_currentConfig == null && _configLoading) {
-      await Future.delayed(const Duration(milliseconds: 100));
-    }
-
-    final collectInterval =
-        _currentConfig?.collectionInterval ?? Constants.defaultCollectionInterval; // Secondes
-    final syncInterval = _currentConfig?.sendInterval ?? Constants.defaultSendInterval; // Secondes
-    final configSyncInterval = _currentConfig?.configSyncInterval ?? Constants.defaultConfigSyncInterval; // Minutes
-
-    await _storageService.saveConfig( Config(collectionInterval: collectInterval, sendInterval: syncInterval, configSyncInterval: configSyncInterval));
-
+    final now = DateTime.now();
     setState(() {
-      _collectInterval =
-          collectInterval ~/ 60; // Stocker en minutes pour l'interface
-      _syncInterval = syncInterval ~/ 60; // Stocker en minutes pour l'interface
-      _configSyncInterval = configSyncInterval; // deja en minutes
-      _nextCollection = DateTime.now().add(Duration(minutes: _collectInterval));
-      _nextSync = DateTime.now().add(Duration(minutes: _syncInterval));
-      _nextConfigSync = DateTime.now().add(Duration(minutes: _configSyncInterval));
-    });
+      _gpsCountdown = _nextCollection?.difference(now) ?? Duration.zero;
+      _syncCountdown = _nextSync?.difference(now) ?? Duration.zero;
+      _configCountdown = _nextConfigSync?.difference(now) ?? Duration.zero;
 
-    await _autoCollect();
-    await _loadPendingData();
-    await _loadHistoryData();
-    _startAutoCollect();
-    _startAutoSync();
-    _startStatsTimer();
-    _startConfigSync();
-  }
-
-  Future<void> _loadConfig() async {
-    setState(() => _configLoading = true);
-    try {
-      final apiService = ApiService();
-      final config = await apiService.getConfig();
-      await _storageService.saveConfig(config);
-      // final prefs = await SharedPreferences.getInstance();
-      // await prefs.setInt('collect_interval', config.collectionInterval ~/ 60);
-      // await prefs.setInt('sync_interval', config.sendInterval ~/ 60);
-      // await prefs.setInt('config_sync_interval', config.configSyncInterval);
-
-      setState(() {
-        _currentConfig = config;
-        _collectInterval = config.collectionInterval ~/ 60;
-        _syncInterval = config.sendInterval ~/ 60;
-        _configSyncInterval=config.configSyncInterval;
-        _nextCollection = DateTime.now().add(
-          Duration(minutes: _collectInterval),
-        );
-        _nextSync = DateTime.now().add(Duration(minutes: _syncInterval));
-        _nextConfigSync =DateTime.now().add(Duration(minutes: _configSyncInterval));
-      });
-
-      _restartTimersWithNewIntervals();
-    } catch (e) {
-      print('❌ Error loading config: $e');
-
-      if (e.toString().contains('401') ||
-          e.toString().contains('Token expired')) {
-        _handleTokenExpired();
-        return;
-      }
-
-      final conf =await _storageService.getConfig();
-      setState(() {
-        //en minutes
-        _collectInterval = conf.collectionInterval ~/60;
-        _syncInterval = conf.sendInterval ~/60;
-        _configSyncInterval = conf.configSyncInterval;
-        _nextCollection = DateTime.now().add(
-          Duration(minutes: _collectInterval),
-        );
-        _nextSync = DateTime.now().add(Duration(minutes: _syncInterval));
-        _nextConfigSync = DateTime.now().add(Duration(minutes: _configSyncInterval));
-      });
-    } finally {
-      setState(() => _configLoading = false);
-    }
-  }
-
-  void _handleTokenExpired() {
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Session expired - Redirecting...'),
-        backgroundColor: Colors.orange,
-        duration: Duration(seconds: 2),
-      ),
-    );
-
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) {
-        Navigator.pushReplacementNamed(context, '/login');
+      // Si le compte à rebours est terminé, demander une nouvelle valeur au service
+      if (_gpsCountdown.isNegative || _syncCountdown.isNegative || _configCountdown.isNegative) {
+        FlutterBackgroundService().invoke('get_next_execution_times');
       }
     });
   }
 
-  Future<void> _loadIntervals() async {
-    final conf =await _storageService.getConfig();
-    setState(() {
-      //en minutes
-      _collectInterval = conf.collectionInterval ~/60;
-      _syncInterval = conf.sendInterval ~/60;
-      _configSyncInterval = conf.configSyncInterval;
-    });
-  }
+
 
   Future<void> _loadStats() async {
-    final prefs = await SharedPreferences.getInstance();
     final pendingData = await _storageService.getPendingGpsData();
-    final lastCollectionString = prefs.getString('last_collection');
+    final lastCollection = await _storageService.getLastCollectionTime();
 
     setState(() {
       _stats = {
         'pending_count': pendingData.length,
-        'last_collection':
-            lastCollectionString != null
-                ? DateTime.parse(lastCollectionString)
-                : null,
+        'last_collection': lastCollection
       };
     });
   }
@@ -328,9 +172,13 @@ class _DashboardPageState extends State<DashboardPage>
     _collectTimer?.cancel();
     _syncTimer?.cancel();
     _statsTimer?.cancel();
+    _uiTimer?.cancel();
     _prefsCheckTimer?.cancel();
     _configSyncTimer?.cancel();
     _tabController.dispose();
+    _dataUpdatedSubscription?.cancel();
+    _timerUpdatedSubscription?.cancel();
+    _errorNotificationSubscription?.cancel();
     super.dispose();
   }
  Future<void> _checkDeviceCode() async {
@@ -338,6 +186,7 @@ class _DashboardPageState extends State<DashboardPage>
     if (deviceCode!=null){
       return;
     }
+    if (!mounted) return;
     await showDialog(
       context: context,
       barrierDismissible: false,
@@ -368,206 +217,12 @@ class _DashboardPageState extends State<DashboardPage>
       ),
     );
  }
-  void _startAutoCollect() {
-    _collectTimer?.cancel();
-    _collectTimer = Timer.periodic(Duration(minutes: _collectInterval), (
-      timer,
-    ) async {
-      print("--------collect from auto--------");
-      await _autoCollect();
-      setState(() {
-        _nextCollection = DateTime.now().add(
-          Duration(minutes: _collectInterval),
-        );
-      });
-      await _loadPendingData();
-      await _loadHistoryData();
-    });
-  }
 
-  void _startAutoSync() {
-    _syncTimer?.cancel();
-    _syncTimer = Timer.periodic(Duration(minutes: _syncInterval), (
-      timer,
-    ) async {
-      await _autoSync();
-      setState(() {
-        _nextSync = DateTime.now().add(Duration(minutes: _syncInterval));
-      });
-      await _loadPendingData();
-      await _loadHistoryData();
-    });
-  }
 
-  void _startStatsTimer() {
-    _statsTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      setState(() {});
-    });
-  }
-
-  void _startPreferencesChecker() {
-    _prefsCheckTimer = Timer.periodic(const Duration(seconds: 2), (
-      timer,
-    ) async {
-      if (!mounted) return;
-
-     final conf = await _storageService.getConfig();
-      final newCollectInterval = conf.collectionInterval ~/ 60;
-      final newSyncInterval = conf.sendInterval ~/60;
-      final newConfigSyncInterval = conf.configSyncInterval;
-
-      if (newCollectInterval != _collectInterval ||
-          newSyncInterval != _syncInterval || newConfigSyncInterval != _configSyncInterval) {
-        print(
-          '🔄 Intervals changed: $newCollectInterval min, $newSyncInterval min, $newConfigSyncInterval min',
-        );
-        await _restartTimersWithNewIntervals();
-      }
-    });
-  }
-
-  void _startConfigSync() {
-    _configSyncTimer?.cancel();
-
-    _configSyncTimer = Timer.periodic(
-      Duration(minutes: _configSyncInterval),
-          (timer) async {
-        print('🔁 Automatic configuration refresh...');
-        await _loadConfig();
-        setState(() {
-          _nextConfigSync = DateTime.now().add(
-            Duration(minutes: _configSyncInterval),
-          );
-        });
-      },
-    );
-  }
-
-  Future<void> _restartTimersWithNewIntervals() async {
-    await _loadIntervals();
-
-    _collectTimer?.cancel();
-    _syncTimer?.cancel();
-    _configSyncTimer?.cancel();
-
-    _startAutoCollect();
-    _startAutoSync();
-    _startConfigSync();
-
-    setState(() {
-      _nextCollection = DateTime.now().add(Duration(minutes: _collectInterval));
-      _nextSync = DateTime.now().add(Duration(minutes: _syncInterval));
-      _nextConfigSync = DateTime.now().add(Duration(minutes: _configSyncInterval));
-
-    });
-  }
-
-  Future<void> _autoCollect() async {
-    try {
-      final permission = await Geolocator.checkPermission();
-      if (permission != LocationPermission.always) {
-        print(
-          '⚠️ Background mode not authorized - collection limited to when app is open',
-        );
-      }
-      final isLocationEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!isLocationEnabled) {
-        _showLocationWarning();
-        return;
-      }
-
-      final hasPermission = await _gpsService.checkPermission();
-      if (!hasPermission) {
-        _showPermissionWarning();
-        return;
-      }
-
-      await AutoCollectService.collectGpsDataBackground();
-      await _loadStats();
-      await _loadPendingData();
-      await _loadHistoryData();
-    } catch (_) {}
-  }
-
-  void _showLocationWarning() {
-    if (!mounted) return;
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            title: const Text('Location disabled'),
-            content: const Text(
-              'Your phone\'s location is disabled. '
-              'Please enable it to allow automatic GPS data collection.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Ignore'),
-              ),
-              TextButton(
-                onPressed: () async {
-                  await Geolocator.openLocationSettings();
-                  Navigator.of(context).pop();
-                },
-                child: const Text('Enable'),
-              ),
-            ],
-          );
-        },
-      );
-    });
-  }
-
-  void _showPermissionWarning() {
-    if (!mounted) return;
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            title: const Text('Permission required'),
-            content: const Text(
-              'The application needs location permission '
-              'to collect GPS data.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Ignore'),
-              ),
-              TextButton(
-                onPressed: () async {
-                  await Geolocator.requestPermission();
-                  Navigator.of(context).pop();
-                },
-                child: const Text('Allow'),
-              ),
-            ],
-          );
-        },
-      );
-    });
-  }
-
-  Future<void> _autoSync() async {
-    try {
-      await AutoCollectService.syncGpsDataBackground();
-      await Future.wait([_loadStats(), _loadPendingData(), _loadHistoryData()]);
-    } catch (e) {
-      print('❌ Auto sync error: $e');
-    }
-  }
-
-  String _formatCountdown(DateTime? target) {
-    if (target == null) return 'N/A';
-    final now = DateTime.now();
-    final diff = target.difference(now);
+  String _formatCountdown(Duration diff) {
+    // if (target == null) return 'N/A';
+    // final now = DateTime.now();
+    // final diff = target.difference(now);
     if (diff.isNegative) return 'Now';
     if (diff.inMinutes < 1) return '${diff.inSeconds}s';
     if (diff.inMinutes < 60) return '${diff.inMinutes}min';
@@ -579,20 +234,16 @@ class _DashboardPageState extends State<DashboardPage>
     return Scaffold(
       floatingActionButton: FloatingActionButton(
         onPressed: () async {
-          await Future.wait([
-            _loadPendingData(),
-            _loadHistoryData(),
-            _loadStats(),
-          ]);
+          FlutterBackgroundService().invoke("get_dashboard_infos");
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(const SnackBar(content: Text('Data refreshed')));
+          ).showSnackBar( SnackBar(content: const Text('Data refreshed')));
         },
         child: Icon(Icons.refresh),
         backgroundColor: Colors.green[700],
       ),
       appBar: AppBar(
-        title: const Text(
+        title:  Text(
           'NexOR GeoTrack',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
@@ -603,14 +254,10 @@ class _DashboardPageState extends State<DashboardPage>
           IconButton(
             icon: const Icon(Icons.settings, color: Colors.white),
             onPressed: () async {
-              final needsRefresh = await Navigator.push(
+              await Navigator.push(
                 context,
                 MaterialPageRoute(builder: (context) => const SettingsPage()),
               );
-
-              if (needsRefresh == true && mounted) {
-                await _restartTimersWithNewIntervals();
-              }
             },
           ),
         ],
@@ -841,17 +488,17 @@ class _DashboardPageState extends State<DashboardPage>
                         ),
                         _buildStatCard(
                           '⏰ Next collection',
-                          _formatCountdown(_nextCollection),
+                          _formatCountdown(_gpsCountdown),
                           Colors.blue,
                         ),
                         _buildStatCard(
                           '🔄 Next sync',
-                          _formatCountdown(_nextSync),
+                          _formatCountdown(_syncCountdown),
                           Colors.green,
                         ),
                         _buildStatCard(
                             '⚙️ Next config',
-                            _formatCountdown(_nextConfigSync),
+                            _formatCountdown(_configCountdown),
                             Colors.purple
                         ),
                       ].map((card) => Padding(

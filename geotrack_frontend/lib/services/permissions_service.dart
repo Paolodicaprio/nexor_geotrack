@@ -1,3 +1,4 @@
+import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 class PermissionResult {
@@ -6,6 +7,7 @@ class PermissionResult {
   final bool notification;
   final bool ignoreBatteryOptimizations;
   final bool systemAlertWindow;
+  final bool locationServiceEnabled;
   final bool allGranted;
 
   PermissionResult({
@@ -14,11 +16,20 @@ class PermissionResult {
     required this.notification,
     required this.ignoreBatteryOptimizations,
     required this.systemAlertWindow,
+    required this.locationServiceEnabled,
     required this.allGranted,
   });
 }
 
 Future<PermissionResult> requestPermissions() async {
+  // 1️⃣ Vérifier si le service de localisation est activé
+  bool locationServiceEnabled = await Geolocator.isLocationServiceEnabled();
+  if (!locationServiceEnabled) {
+    // Ouvrir les paramètres pour activer le GPS
+    await Geolocator.openLocationSettings();
+    // Re-vérifier après ouverture
+    locationServiceEnabled = await Geolocator.isLocationServiceEnabled();
+  }
   // Demander les permissions de localisation et notification de manière séquentielle
   final locationWhenInUse = await Permission.locationWhenInUse.request();
   final locationAlways = locationWhenInUse.isGranted
@@ -42,9 +53,11 @@ Future<PermissionResult> requestPermissions() async {
     additionalPermissions[Permission.ignoreBatteryOptimizations]?.isGranted ?? false,
     systemAlertWindow:
     additionalPermissions[Permission.systemAlertWindow]?.isGranted ?? false,
-    allGranted: locationWhenInUse.isGranted &&
+      locationServiceEnabled: locationServiceEnabled,
+      allGranted: locationWhenInUse.isGranted &&
                 locationAlways.isGranted &&
                 notification.isGranted &&
+                locationServiceEnabled &&
                 additionalPermissions[Permission.ignoreBatteryOptimizations]!.isGranted );
 }
 
@@ -55,6 +68,8 @@ Future<PermissionResult> checkPermissions() async {
   final notification = await Permission.notification.status;
   final ignoreBatteryOptimizations = await Permission.ignoreBatteryOptimizations.status;
   final systemAlertWindow = await Permission.systemAlertWindow.status;
+  final locationServiceEnabled = await Geolocator.isLocationServiceEnabled();
+
 
   return PermissionResult(
     locationWhenInUse: locationWhenInUse.isGranted,
@@ -62,9 +77,11 @@ Future<PermissionResult> checkPermissions() async {
     notification: notification.isGranted,
     ignoreBatteryOptimizations: ignoreBatteryOptimizations.isGranted,
     systemAlertWindow: systemAlertWindow.isGranted,
+    locationServiceEnabled: locationServiceEnabled,
     allGranted: locationWhenInUse.isGranted &&
                 locationAlways.isGranted &&
                 notification.isGranted &&
-                ignoreBatteryOptimizations.isGranted
+                ignoreBatteryOptimizations.isGranted &&
+                locationServiceEnabled
   );
 }
