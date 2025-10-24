@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:geotrack_frontend/models/gps_data_model.dart';
 import 'package:geotrack_frontend/services/api_service.dart';
+import 'package:geotrack_frontend/services/safe_http.dart';
 import 'package:geotrack_frontend/services/storage_service.dart';
 import 'package:geotrack_frontend/utils/global_keys.dart';
 
+import 'auth_service.dart';
 import 'notification_service.dart';
 
 class SyncService {
@@ -27,7 +29,7 @@ class SyncService {
 
       final List<GpsData> successfullySynced = [];
 
-// Filtrer et préparer les données valides
+      // Filtrer et préparer les données valides
       final List<Map<String, dynamic>> jsonList = [];
       for (final data in pendingData) {
         if (data.id == null) {
@@ -37,7 +39,7 @@ class SyncService {
         jsonList.add(data.toApiJson());
       }
 
-// Envoyer la liste d’un coup si elle n’est pas vide
+      // Envoyer la liste d’un coup si elle n’est pas vide
       if (jsonList.isNotEmpty) {
         try {
           await _apiService.sendGpsDataJsonList(jsonList); // <-- nouvelle méthode pour envoyer la liste
@@ -50,12 +52,15 @@ class SyncService {
           }
 
           print('✅ ${successfullySynced.length} data entries synced successfully.');
+          // Supprimer toutes les données synchronisées de la liste d'attente
+          for (final syncedData in successfullySynced) {
+            await _storageService.removePendingGpsData(syncedData.id!);
+            // Sauvegarder dans les données synchronisées
+            await _storageService.saveSyncedGpsData(syncedData);
+          }
+
+          print('✅ Sync completed: ${successfullySynced.length} data synced');
         } catch (e) {
-          // // Afficher la notification
-          // NotificationService.showTemporaryNotification(
-          //   title: "Synchronisation failed",
-          //   content: e.toString().replaceFirst("Exception: ", ""),
-          // );
           scaffoldMessengerKey.currentState?.showSnackBar(SnackBar(
             content: Text(e.toString()),
             backgroundColor: Colors.redAccent,
@@ -65,16 +70,6 @@ class SyncService {
           throw e;
         }
       }
-      // _apiService.resetErrorShown();
-
-      // Supprimer toutes les données synchronisées de la liste d'attente
-      for (final syncedData in successfullySynced) {
-        await _storageService.removePendingGpsData(syncedData.id!);
-        // Sauvegarder dans les données synchronisées
-        await _storageService.saveSyncedGpsData(syncedData);
-      }
-
-      print('✅ Sync completed: ${successfullySynced.length} data synced');
     } catch (e) {
       print('❌ Sync failed: $e');
       rethrow;

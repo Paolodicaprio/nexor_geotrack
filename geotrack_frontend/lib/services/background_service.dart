@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:geotrack_frontend/services/auth_service.dart';
+import 'package:geotrack_frontend/services/safe_http.dart';
 import 'package:geotrack_frontend/services/storage_service.dart';
 
 import '../models/gps_data_model.dart';
@@ -69,6 +71,15 @@ class BackgroundTaskManager {
         await AutoCollectService.syncGpsDataBackground();
       }catch(e){
         print("errror happened : $e");
+        //print l'instance de e
+        print(e);
+        // on essaie de se reconnecter si c'est une erreur 401
+        if (e is CustomHttpException && e.statusCode == 401){
+          final loginResponse = await AuthService.tryReconnectUser();
+          if(loginResponse.success){
+            await AutoCollectService.syncGpsDataBackground(retry: true);
+          }
+        }
         service.invoke("error_notification",{'error': e.toString()});
       }
         _updateDashboardInfos(service);
@@ -93,7 +104,16 @@ class BackgroundTaskManager {
       try{
         await AutoCollectService.refetchConfig();
         restart(service);
+
       }catch(e){
+        // on essaie de se reconnecter si c'est une erreur 401
+        if (e is CustomHttpException && e.statusCode == 401){
+          final loginResponse = await AuthService.tryReconnectUser();
+          if(loginResponse.success){
+           await AutoCollectService.refetchConfig(retry: true);
+           restart(service);
+          }
+        }
         print("errror happened : $e");
         service.invoke("error_notification",{'error': e.toString()});
       }
@@ -114,7 +134,6 @@ class BackgroundTaskManager {
   }
 
   Future<void> restartWithConfig(ServiceInstance service) async{
-    print("config changedddddddddddd");
     StorageService().reloadStorage();
     restart(service);
   }

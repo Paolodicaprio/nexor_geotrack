@@ -13,8 +13,9 @@ class LoginResponse {
   final bool success;
   final String? token;
   final String? error;
+  final int? statusCode;
 
-  LoginResponse({required this.success, this.token, this.error});
+  LoginResponse({required this.success, this.token, this.error,this.statusCode});
 
   factory LoginResponse.fromJson(Map<String, dynamic> json) {
     return LoginResponse(

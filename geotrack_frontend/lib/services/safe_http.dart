@@ -28,3 +28,13 @@ class SafeHttp {
     }
   }
 }
+
+class CustomHttpException implements Exception {
+  final int? statusCode;
+  final String message;
+
+  CustomHttpException(this.message, {this.statusCode});
+
+  @override
+  String toString() => 'CustomHttpException($statusCode): $message';
+}

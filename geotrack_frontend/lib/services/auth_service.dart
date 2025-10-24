@@ -15,25 +15,14 @@ import 'dart:convert';
 class AuthService with ChangeNotifier {
   bool _isAuthenticated = false;
   String? _token;
-  int _failedAttempts = 0;
-  DateTime? _blockUntil;
   String? _userEmail;
 
   bool get isAuthenticated => _isAuthenticated;
   String? get token => _token;
-  int get failedAttempts => _failedAttempts;
-  DateTime? get blockUntil => _blockUntil;
   String? get userEmail => _userEmail;
   bool get hasToken => _token!=null && _token!.isNotEmpty;
 
   Future<LoginResponse> login(String username, String password) async {
-    if (isBlocked()) {
-      return LoginResponse(
-        success: false,
-        error:
-            'Compte bloqué. Réessayez dans ${getRemainingBlockTime().inSeconds} secondes',
-      );
-    }
 
     try {
       final apiUrl = await _getApiUrl();
@@ -84,12 +73,11 @@ class AuthService with ChangeNotifier {
 
             _token = rawCookie;
             _isAuthenticated = true;
-            _failedAttempts = 0;
-            _blockUntil = null;
             _userEmail = username;
 
             await StorageService().saveToken(_token!);
             await StorageService().saveUserUsername(username);
+            await StorageService().savePassword(password);
             notifyListeners();
 
             return LoginResponse(success: true, token: _token);
@@ -106,11 +94,10 @@ class AuthService with ChangeNotifier {
           error: 'Connection failed : Invalid credentials',
         );
       } else if (response.statusCode == 401) {
-        _handleFailedAttempt();
         return LoginResponse(
           success: false,
           error:
-              'Invalid password. Attempts remaining: ${3 - _failedAttempts}',
+              'Invalid credentials',
         );
       } else {
         final errorData = json.decode(response.body);
@@ -137,112 +124,15 @@ class AuthService with ChangeNotifier {
     }
   }
 
-  Future<Map<String, dynamic>> register(String email) async {
-    try {
-      final apiUrl = await _getApiUrl();
-
-      print('🔄 Register attempt - URL: $apiUrl/auth/register');
-
-      final response = await SafeHttp.request(()=>http
-          .post(
-        Uri.parse('$apiUrl/auth/register'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: json.encode({'email': email}),
-      ).timeout(const Duration(seconds: 10)));
-
-      print('📤 Response Status: ${response.statusCode}');
-      print('📤 Response Body: ${response.body}');
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        return {
-          'success': true,
-          'message': 'Compte créé avec succès',
-          'access_code': data['access_code'],
-        };
-      } else {
-        final errorData = json.decode(response.body);
-        return {
-          'success': false,
-          'message':
-              errorData['detail'] ?? 'Erreur HTTP ${response.statusCode}',
-        };
-      }
-    } catch (e) {
-      print('❌ Detailed error: $e');
-      return {
-        'success': false,
-        'message': 'Erreur de connexion: ${e.toString()}',
-      };
-    }
-  }
-
-  void _handleFailedAttempt() {
-    _failedAttempts++;
-
-    if (_failedAttempts >= 3) {
-      _blockUntil = DateTime.now().add(const Duration(seconds: 30));
-    }
-
-    notifyListeners();
-  }
-
-  bool isBlocked() {
-    if (_blockUntil == null) return false;
-    return DateTime.now().isBefore(_blockUntil!);
-  }
-
-  Duration getRemainingBlockTime() {
-    if (_blockUntil == null) return Duration.zero;
-    return _blockUntil!.difference(DateTime.now());
-  }
 
   Future<void> logout() async {
     _isAuthenticated = false;
     // _token = null;
-    _failedAttempts = 0;
-    _blockUntil = null;
     _userEmail = null;
     final store = StorageService();
     await store.deleteUserUsername();
     // await store.clearAllData();
     notifyListeners();
-  }
-
-  Future<Map<String, dynamic>> forgotPin(String email) async {
-    try {
-      final apiUrl = await _getApiUrl();
-
-      final response = await http.post(
-        Uri.parse(
-          '$apiUrl/auth/register',
-        ), // Réutiliser register pour générer un nouveau code
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'email': email}),
-      );
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        return {
-          'success': true,
-          'message': 'New password sent in your mail',
-          'access_code': data['access_code'],
-        };
-      } else {
-        final errorData = json.decode(response.body);
-        return {
-          'success': false,
-          'message': errorData['detail'] ?? 'Error while retrieving',
-        };
-      }
-    } catch (e) {
-      print("------------------errror-------------");
-      print(e);
-      return {'success': false, 'message': 'Connection error: $e'};
-    }
   }
 
   void setUserEmail(String email) {
@@ -253,10 +143,7 @@ class AuthService with ChangeNotifier {
 
   Future<String> _getApiUrl() async {
     final customUrl = await StorageService().getCustomUrl();
-    if (customUrl != null && customUrl.isNotEmpty) {
-      return customUrl;
-    }
-    return dotenv.get('API_BASE_URL', fallback: Constants.apiBaseUrl);
+    return customUrl;
   }
 
   Future<bool> checkAuth() async {
@@ -330,5 +217,104 @@ class AuthService with ChangeNotifier {
       print('❌ Error validating token: $e');
       return false;
     }
+  }
+
+  static Future<LoginResponse> tryReconnectUser()async{
+    final storage = StorageService();
+    try {
+      final apiUrl = await storage.getCustomUrl();
+
+      // Test de connectivité
+      final connectivityResult = await Connectivity().checkConnectivity();
+      if (connectivityResult == ConnectivityResult.none) {
+        return LoginResponse(
+          success: false,
+          error: 'Aucune connexion internet',
+        );
+      }
+
+      // Utiliser les paramètres query comme spécifié dans l'API
+      final uri = Uri.parse(
+          '$apiUrl/web/session/authenticate');
+      final body =
+      {
+        "jsonrpc": "2.0",
+        "params": {
+          "db": await storage.getDatabaseName(),
+          "login": await storage.getUserUsername(),
+          "password": await storage.getPassword()
+        }
+      };
+
+      final response = await SafeHttp.request(()=>http
+          .post(
+          uri,
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: json.encode(body)
+      )
+          .timeout(const Duration(seconds: 40)));
+      print("------------------------------------------");
+      print(response.body);
+      print(response.statusCode);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        // verifier que la connexion a marché
+        if (data["result"]!=null && data["result"]["partner_id"]!=null) {
+          final rawCookie = response.headers['set-cookie'];
+          if (rawCookie != null) {
+            print("Cookie reçu : $rawCookie");
+
+
+            await StorageService().saveToken(rawCookie);
+
+            return LoginResponse(success: true, token: rawCookie,statusCode: 200);
+          }else{
+            return LoginResponse(
+              success: false,
+              error: 'Connection failed: Cookie not found',
+            );
+          }
+        }
+        print('reponse apres login : ${response.body}  - ${response.statusCode}');
+        return LoginResponse(
+          success: false,
+          error: 'Connection failed : Invalid credentials',
+        );
+      } else if (response.statusCode == 401) {
+        return LoginResponse(
+          success: false,
+          statusCode: 401,
+          error:
+          'Invalid credentials',
+        );
+      } else {
+        final errorData = json.decode(response.body);
+        return LoginResponse(
+          success: false,
+          statusCode: response.statusCode,
+          error: errorData['detail'] ?? 'Connection Failed',
+        );
+      }
+    } on SocketException {
+      return LoginResponse(
+        success: false,
+        error: 'Unable to connect to the server',
+      );
+    } on TimeoutException {
+      return LoginResponse(success: false, error: 'Connection timeout');
+    } catch (e) {
+      String message;
+      if(e.toString().contains("HandshakeException")){
+        message = "Unable to connect to the server, check the API URL";
+      }else{
+        message = e.toString();
+      }
+      return LoginResponse(success: false, error: 'Connection failed: $message');
+    }
+
   }
 }

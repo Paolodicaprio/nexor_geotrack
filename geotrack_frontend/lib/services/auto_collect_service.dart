@@ -1,5 +1,7 @@
 import 'package:geolocator/geolocator.dart';
 import 'package:geotrack_frontend/services/api_service.dart';
+import 'package:geotrack_frontend/services/auth_service.dart';
+import 'package:geotrack_frontend/services/safe_http.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geotrack_frontend/services/gps_service.dart';
 import 'package:geotrack_frontend/services/sync_service.dart';
@@ -37,8 +39,9 @@ class AutoCollectService {
     }
   }
 
-  static Future<void> syncGpsDataBackground() async {
+  static Future<void> syncGpsDataBackground({bool retry=false}) async {
     final service = AutoCollectService();
+    //  on reload les données dans le cas ou des configurations ont changé depuis l'ui?
     service._storageService.reloadStorage();
     try {
       final pendingCount = await service._syncService.getPendingSyncCount();
@@ -48,7 +51,15 @@ class AutoCollectService {
       }
     } catch (e) {
       print('❌ Erreur synchronisation: $e');
-      throw e;
+      /* dans le cas d'une reconnexion , la fonction est appelé avec retry= true
+       donc si la reconnexion echoue, on remplace le CustomHttpException par une Exception normale
+       afin d'eviter encore une autre reconnexion  */
+      if (e is CustomHttpException && retry){
+        print("bloc executé---------------");
+        throw Exception(e.toString());
+      }else{
+        rethrow;
+      }
     }
   }
 
@@ -75,13 +86,20 @@ class AutoCollectService {
     };
   }
 
-  static Future<void> refetchConfig()async{
+  static Future<void> refetchConfig({bool retry = false})async{
     try{
       final config = await ApiService().getConfig();
       await StorageService().saveConfig(config);
     }catch(e){
       print(e);
-     throw e;
+      /* dans le cas d'une reconnexion , la fonction est appelé avec retry= true
+       donc si la reconnexion echoue, on remplace le CustomHttpException par une Exception normale
+       afin d'eviter encore une autre reconnexion  */
+      if (e is CustomHttpException && retry){
+        throw Exception(e.toString());
+      }else{
+        rethrow;
+      }
     }
   }
 }

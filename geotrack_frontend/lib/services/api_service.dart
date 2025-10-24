@@ -6,6 +6,7 @@ import 'package:geotrack_frontend/models/config_model.dart';
 import 'package:geotrack_frontend/models/gps_data_model.dart';
 import 'package:geotrack_frontend/utils/constants.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../utils/response_checker.dart';
 import 'storage_service.dart';
 
 class ApiService {
@@ -49,79 +50,49 @@ class ApiService {
           Uri.parse('$apiUrl/transport_tracking/config'),
           headers: headers).timeout(Duration(seconds: 30)));
 
-      if (response.statusCode == 200) {
+      if (response.statusCode == 200 && !isSessionInvalid(response)) {
         return Config.fromJson(json.decode(response.body));
-      } else if (response.statusCode == 401) {
-        await StorageService().deleteToken();
-        throw Exception('Token expiré - Veuillez vous reconnecter.');
+      } else if (isSessionInvalid(response)) {
+        throw CustomHttpException("Session Expired.",statusCode: 401);
       } else if (response.statusCode == 404) {
         return Config.fromDefault();
       } else {
-        throw Exception('Erreur ${response.statusCode}: ${response.body}');
+        throw CustomHttpException('Erreur ${response.statusCode}: ${response.body}',statusCode: response.statusCode);
       }
     } catch (e) {
       throw Exception('Impossible de charger la config : $e');
     }
   }
 
-  Future<GpsData> sendGpsData(GpsData data) async {
-    try {
-      final apiUrl = await getApiUrl();
-      final headers = await _getHeaders();
-      final deviceCode = await StorageService().getDeviceCode();
-      final body = jsonEncode({
-        "positions": [
-         data.toApiJson()
-        ]
-      });
-      final url = Uri.parse('$apiUrl/transport_tracking/$deviceCode/positions');
-      print(url);
-      print(headers);
-      print('body :::::$body');
-      final response = await SafeHttp.request(()=> http.post(url, headers: headers, body: body ));
-
-      if (response.statusCode == 200) {
-        print(response.body);
-        final responseData = json.decode(response.body);
-        return GpsData.fromJson(responseData);
-      } else {
-        print('Failed to send GPS data: ${response.statusCode} - ${response.body}');
-        throw Exception(
-          'Failed to send GPS data: ${response.statusCode} - ${response.body}',
-        );
-      }
-    } catch (e) {
-
-      print('Failed to send GPS data surveillé: $e');
-
-      throw Exception('Failed to send GPS data: $e');
-    }
-  }
 
   Future<void> sendGpsDataJsonList(List<Map<String, dynamic>> data) async {
     final deviceCode = await StorageService().getDeviceCode();
-    if (deviceCode ==null){
-      throw Exception('Could not send data: You must set a device code in settings');
+    if (deviceCode == null) {
+      throw CustomHttpException(
+        'Could not send data: You must set a device code in settings',
+      );
     }
+
     try {
       final apiUrl = await getApiUrl();
       final headers = await _getHeaders();
+      print(" headersss: $headers");
       final body = jsonEncode({"positions": data});
       final url = Uri.parse('$apiUrl/transport_tracking/$deviceCode/positions');
 
-      // print(url);
-      // print(headers);
-      // print('body :::::$body');
+      final response = await SafeHttp.request(
+            () => http.post(url, headers: headers, body: body),
+      );
 
-      final response = await SafeHttp.request(()=>http.post(url, headers: headers, body: body));
-
-      if (response.statusCode == 200) {
+      if (response.statusCode == 200 && !isSessionInvalid(response)) {
         print('✅ GPS data synced successfully: ${response.body}');
-        return; // tout est OK
+        return;
+      }else if(isSessionInvalid(response)){
+        throw CustomHttpException("Session Expired.",statusCode: 401);
       }
 
-      // Gestion des erreurs
-      String errorMessage = 'Unknown Error';
+      // --- Gestion des erreurs HTTP ---
+      String errorMessage;
       try {
         final Map<String, dynamic> responseData = jsonDecode(response.body);
         if (responseData.containsKey('message')) {
@@ -129,19 +100,21 @@ class ApiService {
         } else if (responseData.containsKey('status')) {
           errorMessage = 'Status: ${responseData['status']}';
         } else {
-          errorMessage = response.body; // fallback
+          errorMessage = response.body;
         }
       } catch (_) {
-        errorMessage = 'Failed to send GPS data: ${response.statusCode} - ${response.body}';
+        errorMessage = 'Failed to send GPS data';
       }
-      // Lever l’exception si nécessaire
-      throw Exception(errorMessage);
+      throw Exception(
+        errorMessage,
+      );
 
     } catch (e) {
       print('❌ Failed to send GPS data: $e');
-      rethrow; // pour que l’appelant puisse gérer aussi
+      rethrow;
     }
   }
+
 
 
 

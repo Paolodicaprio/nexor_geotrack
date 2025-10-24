@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:geotrack_frontend/pages/register_page.dart';
 import 'package:geotrack_frontend/services/gps_service.dart';
 import 'package:geotrack_frontend/services/storage_service.dart';
 import 'package:provider/provider.dart';
 import 'package:geotrack_frontend/services/auth_service.dart';
-import 'package:geotrack_frontend/pages/forgot_pin_page.dart';
 
 import '../services/auto_collect_service.dart';
 import '../utils/db_name_extractor.dart';
@@ -19,7 +17,7 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _pinController = TextEditingController();
   final TextEditingController _apiUrlController = TextEditingController();
   final TextEditingController _databaseNameController = TextEditingController();
@@ -182,7 +180,7 @@ class _LoginPageState extends State<LoginPage> {
                   const SizedBox(height: 16),
                   // ADD: Email field
                   TextFormField(
-                    controller: _emailController,
+                    controller: _usernameController,
                     decoration: InputDecoration(
                       labelText: 'Username',
                       labelStyle: TextStyle(color: _primaryGreen),
@@ -256,27 +254,6 @@ class _LoginPageState extends State<LoginPage> {
                     },
                   ),
                   const SizedBox(height: 16),
-                  if (authService.isBlocked())
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Text(
-                        'Access blocked. Please try in ${authService.getRemainingBlockTime().inSeconds} seconds',
-                        style: const TextStyle(
-                          color: Colors.red,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  if (authService.failedAttempts > 0 &&
-                      !authService.isBlocked())
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Text(
-                        'failed attempts: ${authService.failedAttempts}/3',
-                        style: TextStyle(color: Colors.orange[700]),
-                      ),
-                    ),
                   SizedBox(
                     width: double.infinity,
                     height: 48,
@@ -289,10 +266,7 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                         elevation: 2,
                       ),
-                      onPressed:
-                          authService.isBlocked() || _isLoading
-                              ? null
-                              : _handleLogin,
+                      onPressed: _isLoading ? null : _handleLogin,
                       child:
                           _isLoading
                               ? const CircularProgressIndicator(
@@ -307,58 +281,7 @@ class _LoginPageState extends State<LoginPage> {
                               ),
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  TextButton(
-                    onPressed:
-                        authService.isBlocked()
-                            ? null
-                            : () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => const RegisterPage(),
-                                ),
-                              );
-                            },
-                    child: Text(
-                      'Create an account',
-                      style: TextStyle(
-                        color:
-                            authService.isBlocked()
-                                ? Colors.grey
-                                : _primaryGreen,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 15,
-                        decoration: TextDecoration.underline,
-                      ),
-                    ),
-                  ),
                   const SizedBox(height: 16),
-                  TextButton(
-                    onPressed:
-                        authService.isBlocked()
-                            ? null
-                            : () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => const ForgotPinPage(),
-                                ),
-                              );
-                            },
-                    child: Text(
-                      'Forgot access code?',
-                      style: TextStyle(
-                        color:
-                            authService.isBlocked()
-                                ? Colors.grey
-                                : _primaryGreen,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 15,
-                        decoration: TextDecoration.underline,
-                      ),
-                    ),
-                  ),
                 ],
               ),
             ),
@@ -380,7 +303,7 @@ class _LoginPageState extends State<LoginPage> {
       await StorageService().saveDatabaseName(_databaseNameController.text.trim());
       final authService = Provider.of<AuthService>(context, listen: false);
       final result = await authService.login(
-        _emailController.text,
+        _usernameController.text,
         _pinController.text,
       );
 
@@ -393,13 +316,13 @@ class _LoginPageState extends State<LoginPage> {
 
         // Immediate persistence test
         final storedToken = await StorageService().getToken();
-        final storedEmail = await StorageService().getUserUsername();
+        final storedUsername = await StorageService().getUserUsername();
 
         print(
           '🔐 Stored token after login: ${storedToken != null ? "OK" : "FAILED"}',
         );
         print(
-          '📧 Stored email after login: ${storedEmail != null ? "OK" : "FAILED"}',
+          '📧 Stored username after login: ${storedUsername != null ? "OK" : "FAILED"}',
         );
         // CHECKING LOCATION PERMISSIONS AFTER LOGIN
         await _checkLocationPermissions();
@@ -532,7 +455,7 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   void dispose() {
-    _emailController.dispose();
+    _usernameController.dispose();
     _pinController.dispose();
     _databaseNameController.dispose();
     _apiUrlController.dispose();
