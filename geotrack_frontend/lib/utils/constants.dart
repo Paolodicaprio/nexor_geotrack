@@ -14,4 +14,6 @@ class Constants {
   static const int defaultConfigSyncInterval = 180; //minutes
   static const int defaultCollectionInterval = 60; //seconds
   static const int defaultSendInterval = 300; //seconds
+  static const int syncedLimit = 100; // le nombre de données synchronisées à garder
+  static const int pendingLimit = 6000; // le nombre de données non synchronisées à garder
 }

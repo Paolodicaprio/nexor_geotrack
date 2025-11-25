@@ -12,11 +12,11 @@ class SyncService {
   final ApiService _apiService = ApiService();
   final StorageService _storageService = StorageService();
 
+  //TODO: Diviser en chunk de 1000 données
   Future<void> syncPendingData() async {
     try {
       final pendingData = await _storageService.getPendingGpsData();
       final token = await _storageService.getToken();
-
       if (token == null) {
         print('❌ No auth token available for sync');
         return;
@@ -27,39 +27,17 @@ class SyncService {
         return;
       }
 
-      final List<GpsData> successfullySynced = [];
+      final List<Map<String, dynamic>> jsonList = pendingData
+          .map((data) => data.toApiJson())
+          .toList();
 
-      // Filtrer et préparer les données valides
-      final List<Map<String, dynamic>> jsonList = [];
-      for (final data in pendingData) {
-        if (data.id == null) {
-          print('❌ Failed to sync data: id is null, skipping this entry.');
-          continue;
-        }
-        jsonList.add(data.toApiJson());
-      }
-
-      // Envoyer la liste d’un coup si elle n’est pas vide
       if (jsonList.isNotEmpty) {
         try {
-          await _apiService.sendGpsDataJsonList(jsonList); // <-- nouvelle méthode pour envoyer la liste
+          await _apiService.sendGpsDataJsonList(jsonList);
 
-          // Marquer toutes les données comme synchronisées
-          for (final data in pendingData) {
-            if (data.id != null) {
-              successfullySynced.add(data.copyWith(synced: true));
-            }
-          }
+          await _storageService.markAllAsSynced(pendingData);
 
-          print('✅ ${successfullySynced.length} data entries synced successfully.');
-          // Supprimer toutes les données synchronisées de la liste d'attente
-          for (final syncedData in successfullySynced) {
-            await _storageService.removePendingGpsData(syncedData.id!);
-            // Sauvegarder dans les données synchronisées
-            await _storageService.saveSyncedGpsData(syncedData);
-          }
-
-          print('✅ Sync completed: ${successfullySynced.length} data synced');
+          print('✅ ${pendingData.length} data entries synced and marked successfully.');
         } catch (e) {
           scaffoldMessengerKey.currentState?.showSnackBar(SnackBar(
             content: Text(e.toString()),
@@ -76,9 +54,8 @@ class SyncService {
     }
   }
 
-  Future<void> addDataToSyncQueue(GpsData data) async {
-    await _storageService.savePendingGpsData(data);
-  }
+
+
 
   Future<int> getPendingSyncCount() async {
     final pendingData = await _storageService.getPendingGpsData();

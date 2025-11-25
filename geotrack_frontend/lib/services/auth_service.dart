@@ -23,7 +23,6 @@ class AuthService with ChangeNotifier {
   bool get hasToken => _token!=null && _token!.isNotEmpty;
 
   Future<LoginResponse> login(String username, String password) async {
-
     try {
       final apiUrl = await _getApiUrl();
 

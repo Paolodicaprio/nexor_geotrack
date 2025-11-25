@@ -6,6 +6,8 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:geotrack_frontend/services/auth_service.dart';
 import 'package:geotrack_frontend/services/safe_http.dart';
 import 'package:geotrack_frontend/services/storage_service.dart';
+import 'package:hive/hive.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 
 import '../models/gps_data_model.dart';
 import 'auto_collect_service.dart';
@@ -22,6 +24,12 @@ class BackgroundTaskManager {
   DateTime? _nextSyncTime;
   DateTime? _nextConfigSyncTime;
 
+
+  //verrou des taches
+  bool _isCollectTaskRunning = false;
+  bool _isSyncedTaskRunning = false;
+  bool _isConfigSyncTaskRunning = false;
+
   // Méthode pour envoyer les données à l'UI
   void _sendTimersToUI(ServiceInstance service) {
     service.invoke('update_ui_timers',
@@ -34,26 +42,36 @@ class BackgroundTaskManager {
   }
 
   // Collecte GPS
-  Future<void> startGpsCollectTask(ServiceInstance service) async{
+  Future<void> startGpsCollectTask(ServiceInstance service) async {
     final storage = StorageService();
     final config = await storage.getConfig();
     final duration = Duration(seconds: config.collectionInterval);
 
-    // Définir la première exécution
+    // Définir la prochaine exécution
     _nextGpsCollectionTime = DateTime.now().add(duration);
     _gpsCollectionTimer?.cancel();
     _sendTimersToUI(service); // Envoyer la mise à jour
-    _gpsCollectionTimer = Timer.periodic(duration,(timer) async {
+
+    _gpsCollectionTimer = Timer.periodic(duration, (timer) async {
+      if (_isCollectTaskRunning) {
+        _nextGpsCollectionTime = DateTime.now().add(duration);
+        _sendTimersToUI(service);
+        return;
+      }
+      _isCollectTaskRunning = true;
+      try {
         await AutoCollectService.collectGpsDataBackground();
-
         _updateDashboardInfos(service);
-
         // Mettre à jour pour la prochaine exécution
         _nextGpsCollectionTime = DateTime.now().add(duration);
         _sendTimersToUI(service); // Envoyer la mise à jour
+      } catch (e) {
+        print("erreur inattendue dans le timer de collecte gps: $e");
+      } finally {
+        _isCollectTaskRunning = false;
         print("collect task executed!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-          },
-    );
+      }
+    });
     print("collect task called");
   }
 
@@ -67,6 +85,12 @@ class BackgroundTaskManager {
     _sendTimersToUI(service);
 
     _syncTimer = Timer.periodic(duration, (timer) async {
+      if(_isSyncedTaskRunning){
+        _nextSyncTime = DateTime.now().add(duration);
+        _sendTimersToUI(service);
+        return;
+      }
+      _isSyncedTaskRunning=true;
       try{
         await AutoCollectService.syncGpsDataBackground();
       }catch(e){
@@ -81,6 +105,8 @@ class BackgroundTaskManager {
           }
         }
         service.invoke("error_notification",{'error': e.toString()});
+      }finally{
+        _isSyncedTaskRunning=false;
       }
         _updateDashboardInfos(service);
 
@@ -101,6 +127,12 @@ class BackgroundTaskManager {
     _nextConfigSyncTime = DateTime.now().add(duration);
     _sendTimersToUI(service);
     _configSyncTimer = Timer.periodic(duration, (timer) async {
+      if(_isConfigSyncTaskRunning){
+        _nextConfigSyncTime = DateTime.now().add(duration);
+        _sendTimersToUI(service);
+        return;
+      }
+      _isConfigSyncTaskRunning=true;
       try{
         await AutoCollectService.refetchConfig();
         restart(service);
@@ -116,6 +148,8 @@ class BackgroundTaskManager {
         }
         print("errror happened : $e");
         service.invoke("error_notification",{'error': e.toString()});
+      }finally{
+        _isConfigSyncTaskRunning=false;
       }
         _updateDashboardInfos(service);
         _nextConfigSyncTime = DateTime.now().add(duration);
@@ -257,6 +291,10 @@ void onStart(ServiceInstance service) async {
   } catch (e) {
     print("Erreur lors du chargement de .env: $e");
   }
+
+/*  Hive.initFlutter();
+  Hive.registerAdapter(GpsDataAdapter());
+  await Hive.openBox<GpsData>('peopleBox');*/
 
   // cas de demande manuelle depuis l'ui
   service.on('get_next_execution_times').listen((event) {

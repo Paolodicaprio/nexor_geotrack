@@ -49,12 +49,18 @@ dependencies:
   nanoid: ^1.0.0
   flutter_local_notifications: ^19.4.2
   permission_handler: ^12.0.1
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  isar: ^3.1.0+1
+  isar_flutter_libs: ^3.1.0+1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   mockito: ^5.4.2
   flutter_launcher_icons: ^0.14.4
+  build_runner: ^2.4.13
+  isar_generator: ^3.1.0+1
 
 flutter_launcher_icons:
   android: true

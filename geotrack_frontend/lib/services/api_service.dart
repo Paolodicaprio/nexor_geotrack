@@ -65,7 +65,7 @@ class ApiService {
   }
 
 
-  Future<void> sendGpsDataJsonList(List<Map<String, dynamic>> data) async {
+  Future<bool> sendGpsDataJsonList(List<Map<String, dynamic>> data) async {
     final deviceCode = await StorageService().getDeviceCode();
     if (deviceCode == null) {
       throw CustomHttpException(
@@ -86,7 +86,7 @@ class ApiService {
 
       if (response.statusCode == 200 && !isSessionInvalid(response)) {
         print('✅ GPS data synced successfully: ${response.body}');
-        return;
+        return true;
       }else if(isSessionInvalid(response)){
         throw CustomHttpException("Session Expired.",statusCode: 401);
       }

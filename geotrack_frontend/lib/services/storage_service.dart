@@ -1,6 +1,8 @@
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:geotrack_frontend/utils/db_name_extractor.dart';
+import 'package:hive/hive.dart';
+import 'package:isar/isar.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geotrack_frontend/models/gps_data_model.dart';
 import 'dart:convert';
@@ -8,6 +10,7 @@ import 'package:nanoid/nanoid.dart';
 
 import '../models/config_model.dart';
 import '../utils/constants.dart';
+import 'isar_service.dart';
 
 class StorageService {
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
@@ -39,29 +42,48 @@ class StorageService {
   }
 
   Future<void> savePendingGpsData(GpsData data) async {
-    final prefs = await SharedPreferences.getInstance();
-    final pendingData = await getPendingGpsData();
+    try {
+      final isarDb = await IsarService().db;
 
-    pendingData.add(data);
+      await isarDb.writeTxn(() async {
+        await isarDb.gpsDatas.put(data);
+      });
 
-    final jsonList = pendingData.map((e) => e.toJson()).toList();
-    await prefs.setString(_pendingDataKey, json.encode(jsonList));
+      // Nettoyage des anciennes données non synchronisées
+      await cleanOldPendingData();
+    } catch (e) {
+      print("Error saving data : $e");
+    }
   }
 
+  // recuperer les données non synchronisées
   Future<List<GpsData>> getPendingGpsData() async {
-    final prefs = await SharedPreferences.getInstance();
-    final jsonString = prefs.getString(_pendingDataKey);
-
-    if (jsonString == null) {
-      return [];
-    }
-
     try {
-      final List<dynamic> jsonList = json.decode(jsonString);
-      return jsonList.map((json) => GpsData.fromJson(json)).toList();
+      final isarDb = await IsarService().db;
+
+      return await isarDb.gpsDatas
+          .filter()
+          .syncedEqualTo(false)
+          .sortByTimestamp()
+          .findAll();
+
     } catch (e) {
+      print("Error retrieving data : $e");
       return [];
     }
+  }
+
+
+  /// Marque une liste de données comme synchronisés.
+  Future<void> markAllAsSynced(List<GpsData> dataToSync) async {
+    final isar = await IsarService().db;
+    final updatedData = dataToSync
+        .map((data) => data.copyWith(synced: true))
+        .toList();
+    await isar.writeTxn(() async {
+      await isar.gpsDatas.putAll(updatedData);
+    });
+    await cleanOldSyncedData();
   }
 
   Future<void> removePendingGpsData(String id) async {
@@ -75,67 +97,106 @@ class StorageService {
   }
 
   Future<void> clearAllData() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_pendingDataKey);
-    await prefs.remove(_syncedDataKey);
+    final isar = await IsarService().db;
+    await isar.writeTxn(() async {
+      await isar.gpsDatas.clear();
+    });
     await deleteToken();
   }
 
   /// Retourne toutes les données GPS (en attente et synchronisées)
   Future<List<GpsData>> getAllGpsData() async {
-    final pendingData = await getPendingGpsData();
-    final syncedData = await getSyncedGpsData();
+    try {
+      final isarDb = await IsarService().db;
 
-    // Combiner et trier par timestamp décroissant
-    final allData = [...pendingData, ...syncedData];
-    allData.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      // triées par 'timestamp' de manière décroissante (du plus récent au plus ancien).
+      return await isarDb.gpsDatas
+          .where()
+          .sortByTimestampDesc()
+          .findAll();
 
-    return allData;
+    } catch (e) {
+      print("❌ Error retrieving all GPS data: $e");
+      return [];
+    }
   }
 
   Future<void> saveSyncedGpsData(GpsData data) async {
-    final prefs = await SharedPreferences.getInstance();
-    final syncedData = await getSyncedGpsData();
+    try {
+      final isarDb = await IsarService().db;
 
-    // Vérifier si la donnée existe déjà pour éviter les doublons
-    final existingIndex = syncedData.indexWhere((d) => d.id == data.id);
-    if (existingIndex != -1) {
-      // Mettre à jour la donnée existante
-      syncedData[existingIndex] = data.copyWith(synced: true);
-    } else {
-      // Ajouter la nouvelle donnée synchronisée
-      syncedData.add(data.copyWith(synced: true));
+      await isarDb.writeTxn(() async {
+        final syncedData = data.copyWith(synced: true);
+
+        await isarDb.gpsDatas.put(syncedData);
+      });
+
+    } catch (e) {
+      print("❌ Error saving synced data: $e");
     }
-
-    final jsonList =
-        syncedData
-            .map(
-              (e) => {
-                ...e.toJson(),
-                'synced': true, // S'assurer que synced est bien sauvegardé
-                'id': e.id, // S'assurer que l'ID est sauvegardé
-              },
-            )
-            .toList();
-
-    await prefs.setString(_syncedDataKey, json.encode(jsonList));
   }
 
-  // Ajouter cette méthode pour récupérer uniquement les données synchronisées
+  // Récupérer UNIQUEMENT les données synchronisées
   Future<List<GpsData>> getSyncedGpsData() async {
-    final prefs = await SharedPreferences.getInstance();
-    final syncedJsonString = prefs.getString(_syncedDataKey);
+    try {
+      final isarDb = await IsarService().db;
 
-    if (syncedJsonString == null) {
+      return await isarDb.gpsDatas
+          .filter()
+          .syncedEqualTo(true)
+          .sortByTimestampDesc() // Tri du plus récent au plus ancien pour l'historique
+          .findAll();
+
+    } catch (e) {
+      print("❌ Error retrieving synced data: $e");
       return [];
     }
+  }
 
-    try {
-      final List<dynamic> syncedJsonList = json.decode(syncedJsonString);
-      return syncedJsonList.map((json) => GpsData.fromJson(json)).toList();
-    } catch (e) {
-      print('❌ Error decoding synced data: $e');
-      return [];
+  /// Supprime les données synchronisées les plus anciennes pour n'en garder que les X derniers.
+  Future<void> cleanOldSyncedData() async {
+    final isar = await IsarService().db;
+
+    final totalSynced = await isar.gpsDatas.filter().syncedEqualTo(true).count();
+
+    if (totalSynced > Constants.syncedLimit) {
+      final itemsToDelete = totalSynced - Constants.syncedLimit;
+
+      await isar.writeTxn(() async {
+        //  Trouver les IDs des "itemsToDelete" les plus anciens (tri croissant)
+        final idsToDelete = await isar.gpsDatas
+            .filter()
+            .syncedEqualTo(true)
+            .sortByTimestamp() // Tri du plus ancien au plus récent
+            .limit(itemsToDelete)
+            .findAll();
+
+        await isar.gpsDatas.deleteAll(idsToDelete.map((data) => data.id).toList());
+        print('🗑️ Nettoyage des synchronisés : $itemsToDelete enregistrements supprimés.');
+      });
+    }
+  }
+
+  /// Supprime les données non synchronisées les plus anciennes pour n'en garder que Y.
+  Future<void> cleanOldPendingData() async {
+    final isar = await IsarService().db;
+
+    final totalPending = await isar.gpsDatas.filter().syncedEqualTo(false).count();
+
+    if (totalPending > Constants.pendingLimit) {
+      final itemsToDelete = totalPending - Constants.pendingLimit;
+
+      await isar.writeTxn(() async {
+        // Trouver les IDs des "itemsToDelete" les plus anciens (tri croissant)
+        final idsToDelete = await isar.gpsDatas
+            .filter()
+            .syncedEqualTo(false)
+            .sortByTimestamp() // Tri du plus ancien au plus récent
+            .limit(itemsToDelete)
+            .findAll();
+        await isar.gpsDatas.deleteAll(idsToDelete.map((data) => data.id).toList());
+        print('🗑️ Nettoyage des Pending : $itemsToDelete enregistrements supprimés.');
+      });
     }
   }
 
@@ -230,9 +291,6 @@ class StorageService {
   Future<void> saveConfig(Config config) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_configKey, json.encode(config.toJson()));
-    // await prefs.setInt("collect_interval", config.collectionInterval);
-    // await prefs.setInt("sync_interval", config.sendInterval);
-    // await prefs.setInt("config_sync_interval",config.configSyncInterval);
   }
 
   Future<Config> getConfig()  async{

@@ -49,7 +49,7 @@ class GpsService {
         throw Exception('Invalid location coordinates');
       }
       return GpsData(
-        id: const Uuid().v4(),
+        uuid: const Uuid().v4(),
         lat: position.latitude,
         lon: position.longitude,
         timestamp: DateTime.now(),

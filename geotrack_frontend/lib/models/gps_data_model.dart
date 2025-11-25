@@ -1,25 +1,39 @@
+import 'package:isar/isar.dart';
 import 'package:uuid/uuid.dart';
+part 'gps_data_model.g.dart';
 
+@collection
 class GpsData {
-  final String? id;
+  Id id = Isar.autoIncrement;
+
+  @Index(unique: true)
+  final String? uuid;
+
   final double lat;
+
   final double lon;
+
+  @Index()
   final DateTime timestamp;
-  final bool? synced;
+
+  @Index()
+  final bool synced;
+
   final DateTime? createdAt;
 
   GpsData({
-    String? id,
+    this.id = Isar.autoIncrement,
+    String? uuid,
     required this.lat,
     required this.lon,
     required this.timestamp,
-    this.synced,
+    this.synced = false,
     this.createdAt,
-  }) : id = id ?? const Uuid().v4();
+  }): uuid = uuid ?? const Uuid().v4();
 
   factory GpsData.fromJson(Map<String, dynamic> json) {
     return GpsData(
-      id: json['id']?.toString(),
+      uuid: json['id']?.toString(),
       lat: json['lat']?.toDouble() ?? json['latitude']?.toDouble() ?? 0.0,
       lon: json['lon']?.toDouble() ?? json['longitude']?.toDouble() ?? 0.0,
       timestamp: DateTime.parse(json['timestamp'] ?? json['datetime']),
@@ -33,7 +47,7 @@ class GpsData {
 
   Map<String, dynamic> toJson() {
     return {
-      'id': id,
+      'id': uuid,
       'lat': lat,
       'lon': lon,
       'timestamp': timestamp.toIso8601String(),
@@ -54,6 +68,7 @@ class GpsData {
   GpsData copyWith({bool? synced}) {
     return GpsData(
       id: id,
+      uuid: uuid,
       lat: lat,
       lon: lon,
       timestamp: timestamp,

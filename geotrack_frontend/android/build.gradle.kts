@@ -13,7 +13,17 @@ subprojects {
     project.layout.buildDirectory.value(newSubprojectBuildDir)
 }
 subprojects {
+    // --- DÉBUT DE LA CORRECTION ISAR ---
+    // On injecte le namespace manquant spécifiquement pour la librairie Isar
+    afterEvaluate {
+        if (project.name == "isar_flutter_libs") {
+            project.extensions.configure<com.android.build.gradle.LibraryExtension> {
+                namespace = "dev.isar.isar_flutter_libs"
+            }
+        }
+    }
     project.evaluationDependsOn(":app")
+
 }
 
 tasks.register<Delete>("clean") {
