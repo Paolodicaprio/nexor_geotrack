@@ -17,8 +17,7 @@ class IsarService {
       return await Isar.open(
         [GpsDataSchema], // Le schéma généré
         directory: dir.path,
-        //TODO: desactiver ensuite
-        inspector: true, // Pratique pour le debug en dev
+        inspector: false,
       );
     }
     return Future.value(Isar.getInstance());
