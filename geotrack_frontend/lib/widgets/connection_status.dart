@@ -5,10 +5,10 @@ class ConnectionStatus extends StatefulWidget {
   const ConnectionStatus({super.key});
 
   @override
-  _ConnectionStatusState createState() => _ConnectionStatusState();
+  ConnectionStatusState createState() => ConnectionStatusState();
 }
 
-class _ConnectionStatusState extends State<ConnectionStatus> {
+class ConnectionStatusState extends State<ConnectionStatus> {
   final Connectivity _connectivity = Connectivity();
   ConnectivityResult _connectionStatus = ConnectivityResult.none;
 

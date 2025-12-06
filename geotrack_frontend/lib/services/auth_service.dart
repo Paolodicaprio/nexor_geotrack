@@ -1,13 +1,14 @@
-// auth_service.dart
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:geotrack_frontend/main.dart';
+import 'package:geotrack_frontend/services/background_manager.dart';
 import 'package:http/http.dart' as http;
 import 'package:geotrack_frontend/models/auth_model.dart';
 import 'package:geotrack_frontend/utils/constants.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'storage_service.dart';
 
 class AuthService with ChangeNotifier {
@@ -21,8 +22,25 @@ class AuthService with ChangeNotifier {
   String? get token => _token;
   int get failedAttempts => _failedAttempts;
   DateTime? get blockUntil => _blockUntil;
+  String? get userEmail => _userEmail;
 
-  Future<LoginResponse> login(String pin) async {
+  // Méthodes manquantes ajoutées
+  bool isBlocked() {
+    if (_blockUntil == null) return false;
+    return DateTime.now().isBefore(_blockUntil!);
+  }
+
+  Duration getRemainingBlockTime() {
+    if (_blockUntil == null) return Duration.zero;
+    return _blockUntil!.difference(DateTime.now());
+  }
+
+  void setUserEmail(String email) {
+    _userEmail = email;
+    notifyListeners();
+  }
+
+  Future<LoginResponse> login(String email, String accessCode) async {
     if (isBlocked()) {
       return LoginResponse(
         success: false,
@@ -32,9 +50,12 @@ class AuthService with ChangeNotifier {
     }
 
     try {
-      final apiUrl = dotenv.get('API_BASE_URL', fallback: Constants.apiBaseUrl);
+      // Charger l'URL personnalisée ou utiliser celle par défaut
+      final storageService = StorageService();
+      final customUrl = await storageService.getCustomUrl();
+      final apiUrl = customUrl ?? Constants.apiBaseUrl;
 
-      // Test de connectivité
+      // Tester la connectivité
       final connectivityResult = await Connectivity().checkConnectivity();
       if (connectivityResult == ConnectivityResult.none) {
         return LoginResponse(
@@ -43,16 +64,27 @@ class AuthService with ChangeNotifier {
         );
       }
 
+      // Construire l'URL avec les paramètres QUERY
+      final uri = Uri.parse('$apiUrl/auth/login').replace(
+        queryParameters: {
+          'email': email.trim(),
+          'access_code': accessCode.trim(),
+        },
+      );
+
+      print('🔐 Login URL: $uri');
+
       final response = await http
           .post(
-            Uri.parse('$apiUrl/auth/login'),
+            uri,
             headers: {
               'Content-Type': 'application/json',
               'Accept': 'application/json',
             },
-            body: json.encode({'pin': pin}),
           )
           .timeout(const Duration(seconds: 30));
+
+      print('🔐 Login Response: ${response.statusCode} - ${response.body}');
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -60,22 +92,40 @@ class AuthService with ChangeNotifier {
         _isAuthenticated = true;
         _failedAttempts = 0;
         _blockUntil = null;
+        _userEmail = email.trim();
 
-        await StorageService().saveToken(_token!);
+        await storageService.saveToken(_token!);
+
+        // Démarrer le background manager après connexion réussie
+        try {
+          // Attendre un peu pour que l'interface soit stable
+          await Future.delayed(const Duration(seconds: 1));
+          await BackgroundManager().start();
+        } catch (e) {
+          print('⚠️ Failed to start background manager: $e');
+        }
+
         notifyListeners();
         return LoginResponse(success: true, token: _token);
       } else if (response.statusCode == 401) {
         _handleFailedAttempt();
         return LoginResponse(
           success: false,
-          error: 'PIN incorrect. Tentatives restantes: ${3 - _failedAttempts}',
+          error:
+              'Email ou code d\'accès incorrect. Tentatives restantes: ${3 - _failedAttempts}',
         );
       } else {
         final errorData = json.decode(response.body);
-        return LoginResponse(
-          success: false,
-          error: errorData['detail'] ?? 'Erreur de connexion',
-        );
+        String errorMessage = 'Erreur de connexion';
+
+        if (errorData['detail'] is String) {
+          errorMessage = errorData['detail'];
+        } else if (errorData['detail'] is List &&
+            errorData['detail'].isNotEmpty) {
+          errorMessage = errorData['detail'][0]['msg'];
+        }
+
+        return LoginResponse(success: false, error: errorMessage);
       }
     } on SocketException {
       return LoginResponse(
@@ -85,7 +135,8 @@ class AuthService with ChangeNotifier {
     } on TimeoutException {
       return LoginResponse(success: false, error: 'Timeout de connexion');
     } catch (e) {
-      return LoginResponse(success: false, error: 'Erreur de connexion');
+      print('❌ Login error: $e');
+      return LoginResponse(success: false, error: 'Erreur de connexion: $e');
     }
   }
 
@@ -99,22 +150,15 @@ class AuthService with ChangeNotifier {
     notifyListeners();
   }
 
-  bool isBlocked() {
-    if (_blockUntil == null) return false;
-    return DateTime.now().isBefore(_blockUntil!);
-  }
-
-  Duration getRemainingBlockTime() {
-    if (_blockUntil == null) return Duration.zero;
-    return _blockUntil!.difference(DateTime.now());
-  }
-
   Future<void> logout() async {
     _isAuthenticated = false;
     _token = null;
     _failedAttempts = 0;
     _blockUntil = null;
     _userEmail = null;
+
+    // Note: stopBackgroundService doit être appelé depuis le widget
+    // car c'est une fonction dans main.dart
     await StorageService().deleteToken();
     notifyListeners();
   }
@@ -128,56 +172,6 @@ class AuthService with ChangeNotifier {
       return true;
     }
     return false;
-  }
-
-  Future<Map<String, dynamic>> changePin(
-    String email,
-    String oldPin,
-    String newPin,
-  ) async {
-    try {
-      final apiUrl = dotenv.get('API_BASE_URL', fallback: Constants.apiBaseUrl);
-
-      // Utiliser le token de l'instance au lieu du storage
-      if (_token == null) {
-        return {
-          'success': false,
-          'message': 'Non authentifié. Veuillez vous reconnecter',
-        };
-      }
-
-      final response = await http.post(
-        Uri.parse('$apiUrl/auth/change-pin'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $_token', // Utiliser _token directement
-        },
-        body: json.encode({
-          'email': email,
-          'old_pin': oldPin,
-          'new_pin': newPin,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        return {'success': true, 'message': 'PIN modifié avec succès'};
-      } else if (response.statusCode == 401) {
-        // Token expiré ou invalide
-        await logout();
-        return {
-          'success': false,
-          'message': 'Session expirée. Veuillez vous reconnecter',
-        };
-      } else {
-        final errorData = json.decode(response.body);
-        return {
-          'success': false,
-          'message': errorData['detail'] ?? 'Erreur lors du changement de PIN',
-        };
-      }
-    } catch (e) {
-      return {'success': false, 'message': 'Erreur de connexion: $e'};
-    }
   }
 
   String? getEmailFromToken() {
@@ -199,59 +193,60 @@ class AuthService with ChangeNotifier {
       return null;
     }
   }
-
-  // Nouvelle méthode pour récupérer le PIN oublié
-  Future<Map<String, dynamic>> forgotPin(String email) async {
-    try {
-      final apiUrl = dotenv.get('API_BASE_URL', fallback: Constants.apiBaseUrl);
-
-      final response = await http.post(
-        Uri.parse('$apiUrl/auth/forgot-pin'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'email': email}),
-      );
-
-      if (response.statusCode == 200) {
-        return {'success': true, 'message': 'Nouveau PIN envoyé par email'};
-      } else {
-        final errorData = json.decode(response.body);
-        return {
-          'success': false,
-          'message': errorData['detail'] ?? 'Erreur lors de la récupération',
-        };
-      }
-    } catch (e) {
-      return {'success': false, 'message': 'Erreur de connexion'};
-    }
-  }
-
-  void setUserEmail(String email) {
-    _userEmail = email;
-  }
-
-  String? get userEmail => _userEmail;
 }
 
-Future<Map<String, dynamic>> register(String email, String pin) async {
+// Fonction d'inscription externe (à garder séparée du service)
+// Fonction d'inscription externe (à garder séparée du service)
+Future<Map<String, dynamic>> register(String email) async {
   try {
-    final apiUrl = dotenv.get('API_BASE_URL', fallback: Constants.apiBaseUrl);
+    final storageService = StorageService();
+    final customUrl = await storageService.getCustomUrl();
+    final apiUrl = customUrl ?? Constants.apiBaseUrl;
 
-    final response = await http.post(
-      Uri.parse('$apiUrl/auth/register'),
-      headers: {'Content-Type': 'application/json'},
-      body: json.encode({'email': email, 'pin': pin}),
-    );
+    final response = await http
+        .post(
+          Uri.parse('$apiUrl/auth/register'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: json.encode({'email': email.trim()}),
+        )
+        .timeout(const Duration(seconds: 30));
+
+    print('📝 Register response: ${response.statusCode} - ${response.body}');
 
     if (response.statusCode == 200) {
-      return {'success': true, 'message': 'Compte créé avec succès'};
+      final data = json.decode(response.body);
+      return {
+        'success': true,
+        'message':
+            'Compte créé avec succès! Code d\'accès: ${data['access_code']}',
+        'access_code': data['access_code'],
+        'email': data['email'],
+      };
     } else {
       final errorData = json.decode(response.body);
-      return {
-        'success': false,
-        'message': errorData['detail'] ?? 'Erreur lors de l\'inscription',
-      };
+      String errorMessage = 'Erreur lors de l\'inscription';
+
+      if (errorData['detail'] is String) {
+        errorMessage = errorData['detail'];
+      } else if (errorData['detail'] is List &&
+          errorData['detail'].isNotEmpty) {
+        errorMessage = errorData['detail'][0]['msg'];
+      }
+
+      return {'success': false, 'message': errorMessage};
     }
+  } on SocketException {
+    return {
+      'success': false,
+      'message': 'Impossible de se connecter au serveur',
+    };
+  } on TimeoutException {
+    return {'success': false, 'message': 'Timeout de connexion'};
   } catch (e) {
-    return {'success': false, 'message': 'Erreur de connexion'};
+    print('❌ Register error: $e');
+    return {'success': false, 'message': 'Erreur de connexion: $e'};
   }
 }

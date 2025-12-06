@@ -4,61 +4,75 @@ import 'package:geotrack_frontend/services/sync_service.dart';
 import 'package:geotrack_frontend/services/storage_service.dart';
 
 class AutoCollectService {
-  final GpsService _gpsService = GpsService();
-  final SyncService _syncService = SyncService();
-  final StorageService _storageService = StorageService();
+  static final GpsService _gpsService = GpsService();
+  static final SyncService _syncService = SyncService();
+  static final StorageService _storageService = StorageService();
 
   static Future<void> collectGpsDataBackground() async {
-    final service = AutoCollectService();
     try {
-      final location = await service._gpsService.getCurrentLocation();
-      await service._storageService.savePendingGpsData(location);
+      print('📍 Starting GPS data collection...');
 
+      // Vérifier les permissions
+      final hasPermission = await _gpsService.checkPermission();
+      if (!hasPermission) {
+        print('⚠️ Location permissions not granted');
+        return;
+      }
+
+      // Récupérer la localisation
+      final location = await _gpsService.getCurrentLocation();
+      print(
+        '📍 Location obtained: ${location.latitude}, ${location.longitude}',
+      );
+
+      // Sauvegarder localement
+      await _storageService.savePendingGpsData(location);
+
+      // Sauvegarder le timestamp de la dernière collecte
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
         'last_collection',
         DateTime.now().toIso8601String(),
       );
 
-      print('📍 Donnée GPS collectée: ${location.lat}, ${location.lon}');
+      print(
+        '✅ GPS data collected and saved: ${location.latitude}, ${location.longitude}',
+      );
     } catch (e) {
-      print('❌ Erreur collecte GPS: $e');
+      print('❌ GPS collection error: $e');
     }
   }
 
   static Future<void> syncGpsDataBackground() async {
-    final service = AutoCollectService();
     try {
-      final pendingCount = await service._syncService.getPendingSyncCount();
+      print('🔄 Starting background sync...');
+
+      // VÉRIFIER SI L'UTILISATEUR EST AUTHENTIFIÉ
+      final token = await _storageService.getToken();
+      if (token == null || token.isEmpty) {
+        print('⚠️ User not authenticated, skipping background sync');
+        return;
+      }
+
+      final pendingCount = await _syncService.getPendingSyncCount();
       if (pendingCount > 0) {
-        await service._syncService.syncPendingData();
-        print('✅ Synchronisation réussie: $pendingCount données');
+        print('🔄 Syncing $pendingCount pending items...');
+        await _syncService.syncPendingData();
+        print('✅ Background sync completed: $pendingCount items processed');
+      } else {
+        print('✅ No pending data to sync');
       }
     } catch (e) {
-      print('❌ Erreur synchronisation: $e');
+      print('❌ Background sync error: $e');
     }
   }
 
-  // Ces méthodes peuvent être supprimées car elles sont redondantes
-  static Future<void> collectGpsData() async {
+  // Méthodes manuelles
+  static Future<void> manualCollect() async {
     await collectGpsDataBackground();
   }
 
-  static Future<void> syncGpsData() async {
+  static Future<void> manualSync() async {
     await syncGpsDataBackground();
-  }
-
-  Future<Map<String, dynamic>> getCollectionStats() async {
-    final prefs = await SharedPreferences.getInstance();
-    final pendingData = await _storageService.getPendingGpsData();
-    final lastCollection = prefs.getString('last_collection');
-
-    return {
-      'pending_count': pendingData.length,
-      'last_collection':
-          lastCollection != null ? DateTime.parse(lastCollection) : null,
-      'next_collection': DateTime.now().add(const Duration(minutes: 5)),
-      'next_sync': DateTime.now().add(const Duration(minutes: 10)),
-    };
   }
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:geotrack_frontend/pages/login_page.dart';
 import 'package:provider/provider.dart';
 import 'package:geotrack_frontend/services/auth_service.dart';
 
@@ -11,12 +12,10 @@ class RegisterPage extends StatefulWidget {
 
 class _RegisterPageState extends State<RegisterPage> {
   final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _pinController = TextEditingController();
-  final TextEditingController _confirmPinController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
-  bool _obscurePin = true;
-  bool _obscureConfirmPin = true;
+  String? _generatedAccessCode;
+  bool _showSuccessMessage = false;
 
   final Color _primaryGreen = const Color(0xFF2ECC40);
 
@@ -65,180 +64,190 @@ class _RegisterPageState extends State<RegisterPage> {
                     'Créez votre compte',
                     style: TextStyle(fontSize: 16, color: Colors.grey),
                   ),
-                  const SizedBox(height: 24),
-                  TextFormField(
-                    controller: _emailController,
-                    decoration: InputDecoration(
-                      labelText: 'Email',
-                      labelStyle: TextStyle(color: _primaryGreen),
-                      filled: true,
-                      fillColor: _primaryGreen.withOpacity(0.08),
-                      border: OutlineInputBorder(
+
+                  if (_showSuccessMessage && _generatedAccessCode != null) ...[
+                    const SizedBox(height: 24),
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: _primaryGreen),
+                        border: Border.all(color: Colors.green, width: 2),
                       ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: _primaryGreen),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: _primaryGreen, width: 2),
-                      ),
-                      prefixIcon: Icon(Icons.email, color: _primaryGreen),
-                    ),
-                    keyboardType: TextInputType.emailAddress,
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Veuillez entrer votre email';
-                      }
-                      if (!RegExp(
-                        r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
-                      ).hasMatch(value)) {
-                        return 'Email invalide';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: _pinController,
-                    obscureText: _obscurePin,
-                    decoration: InputDecoration(
-                      labelText: 'PIN',
-                      labelStyle: TextStyle(color: _primaryGreen),
-                      filled: true,
-                      fillColor: _primaryGreen.withOpacity(0.08),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: _primaryGreen),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: _primaryGreen),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: _primaryGreen, width: 2),
-                      ),
-                      prefixIcon: Icon(Icons.lock, color: _primaryGreen),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscurePin ? Icons.visibility : Icons.visibility_off,
-                          color: _primaryGreen,
-                        ),
-                        onPressed: () {
-                          setState(() {
-                            _obscurePin = !_obscurePin;
-                          });
-                        },
-                      ),
-                      counterText: '',
-                    ),
-                    keyboardType: TextInputType.number,
-                    maxLength: 4,
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Veuillez créer un PIN';
-                      }
-                      if (value.length != 4) {
-                        return 'Le PIN doit contenir 4 chiffres';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: _confirmPinController,
-                    obscureText: _obscureConfirmPin,
-                    decoration: InputDecoration(
-                      labelText: 'Confirmer le PIN',
-                      labelStyle: TextStyle(color: _primaryGreen),
-                      filled: true,
-                      fillColor: _primaryGreen.withOpacity(0.08),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: _primaryGreen),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: _primaryGreen),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: _primaryGreen, width: 2),
-                      ),
-                      prefixIcon: Icon(Icons.lock, color: _primaryGreen),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscureConfirmPin
-                              ? Icons.visibility
-                              : Icons.visibility_off,
-                          color: _primaryGreen,
-                        ),
-                        onPressed: () {
-                          setState(() {
-                            _obscureConfirmPin = !_obscureConfirmPin;
-                          });
-                        },
-                      ),
-                      counterText: '',
-                    ),
-                    keyboardType: TextInputType.number,
-                    maxLength: 4,
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Veuillez confirmer votre PIN';
-                      }
-                      if (value != _pinController.text) {
-                        return 'Les PIN ne correspondent pas';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 48,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _primaryGreen,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        elevation: 2,
-                      ),
-                      onPressed: _isLoading ? null : _handleRegister,
-                      child:
-                          _isLoading
-                              ? const CircularProgressIndicator(
-                                color: Colors.white,
-                              )
-                              : const Text(
-                                'Créer le compte',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
+                      child: Column(
+                        children: [
+                          const Icon(
+                            Icons.check_circle,
+                            color: Colors.green,
+                            size: 48,
+                          ),
+                          const SizedBox(height: 16),
+                          const Text(
+                            'Compte créé avec succès !',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.green,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Votre code d\'accès:',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey[700],
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.amber[50],
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.amber),
+                            ),
+                            child: Text(
+                              _generatedAccessCode!,
+                              style: const TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black,
+                                letterSpacing: 2,
                               ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  TextButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                    },
-                    child: Text(
-                      'Déjà un compte ? Se connecter',
-                      style: TextStyle(
-                        color: _primaryGreen,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 15,
-                        decoration: TextDecoration.underline,
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 16),
+                            child: Text(
+                              '⚠️ IMPORTANT: Notez ce code précieusement !\n'
+                              'Il ne sera plus jamais affiché et est requis pour vous connecter.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.orange,
+                                fontStyle: FontStyle.italic,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _primaryGreen,
+                                foregroundColor: Colors.white,
+                              ),
+                              onPressed: () {
+                                Navigator.pop(context);
+                              },
+                              child: const Text('Retour à la connexion'),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ),
+                  ] else ...[
+                    const SizedBox(height: 24),
+                    TextFormField(
+                      controller: _emailController,
+                      decoration: InputDecoration(
+                        labelText: 'Email de l\'entreprise',
+                        labelStyle: TextStyle(color: _primaryGreen),
+                        filled: true,
+                        fillColor: _primaryGreen.withAlpha(
+                          (255 * 0.08).round(),
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: _primaryGreen),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: _primaryGreen),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                            color: _primaryGreen,
+                            width: 2,
+                          ),
+                        ),
+                        prefixIcon: Icon(Icons.email, color: _primaryGreen),
+                        hintText: 'ex: contact@votre-entreprise.com',
+                      ),
+                      keyboardType: TextInputType.emailAddress,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Veuillez entrer votre email';
+                        }
+                        if (!RegExp(
+                          r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
+                        ).hasMatch(value)) {
+                          return 'Format d\'email invalide';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: Text(
+                        'Un code d\'accès unique de 8 caractères sera généré et envoyé à cet email.',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey[600],
+                          fontStyle: FontStyle.italic,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _primaryGreen,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          elevation: 2,
+                        ),
+                        onPressed: _isLoading ? null : _handleRegister,
+                        child:
+                            _isLoading
+                                ? const CircularProgressIndicator(
+                                  color: Colors.white,
+                                )
+                                : const Text(
+                                  'Créer le compte',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                      },
+                      child: Text(
+                        'Déjà un compte ? Se connecter',
+                        style: TextStyle(
+                          color: _primaryGreen,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 15,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -256,36 +265,32 @@ class _RegisterPageState extends State<RegisterPage> {
         _isLoading = true;
       });
 
-      // Appel de la vraie fonction d'inscription
-      final result = await register(_emailController.text, _pinController.text);
+      // Appeler la fonction d'inscription depuis auth_service.dart
+      final result = await register(_emailController.text.trim());
 
       setState(() {
         _isLoading = false;
       });
 
       if (result['success'] == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result['message']),
-            backgroundColor: Colors.green,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
-        );
+        setState(() {
+          _generatedAccessCode = result['access_code'];
+          _showSuccessMessage = true;
+        });
 
-        // Rediriger vers la page de connexion
-        Navigator.pop(context);
+        // Stocker l'email dans le service d'authentification
+        final authService = Provider.of<AuthService>(context, listen: false);
+        authService.setUserEmail(_emailController.text.trim());
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(result['message']),
+            content: Text(result['message'] ?? 'Erreur lors de l\'inscription'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(10),
             ),
+            duration: const Duration(seconds: 5),
           ),
         );
       }
@@ -295,8 +300,6 @@ class _RegisterPageState extends State<RegisterPage> {
   @override
   void dispose() {
     _emailController.dispose();
-    _pinController.dispose();
-    _confirmPinController.dispose();
     super.dispose();
   }
 }

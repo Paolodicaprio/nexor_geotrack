@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:geotrack_frontend/pages/dashboard_page.dart';
-import 'package:geotrack_frontend/pages/forgot_pin_page.dart';
-import 'package:geotrack_frontend/pages/login_page.dart';
+import 'package:geotrack_frontend/pages/login_page.dart' as login_page;
+import 'package:geotrack_frontend/pages/register_page.dart';
 import 'package:geotrack_frontend/services/auth_service.dart';
 import 'package:geotrack_frontend/services/storage_service.dart';
 import 'package:provider/provider.dart';
 
+// Dans le GeoTrackApp, mettre à jour les routes
 class GeoTrackApp extends StatelessWidget {
   const GeoTrackApp({super.key});
 
@@ -30,7 +31,7 @@ class GeoTrackApp extends StatelessWidget {
               if (snapshot.hasData && snapshot.data != null) {
                 return const DashboardPage();
               } else {
-                return const LoginPage();
+                return const login_page.LoginPage(); // Utiliser directement LoginPage
               }
             } else {
               return const Scaffold(
@@ -40,9 +41,9 @@ class GeoTrackApp extends StatelessWidget {
           },
         ),
         routes: {
-          '/login': (context) => const LoginPage(),
+          '/login': (context) => const login_page.LoginPage(),
           '/dashboard': (context) => const DashboardPage(),
-          '/forgot-pin': (context) => const ForgotPinPage(),
+          '/register': (context) => const RegisterPage(),
         },
       ),
     );

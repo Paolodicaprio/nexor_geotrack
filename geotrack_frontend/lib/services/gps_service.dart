@@ -1,6 +1,5 @@
 import 'package:geolocator/geolocator.dart';
 import 'package:geotrack_frontend/models/gps_data_model.dart';
-import 'package:uuid/uuid.dart';
 
 class GpsService {
   Future<bool> checkPermission() async {
@@ -38,12 +37,12 @@ class GpsService {
         desiredAccuracy: LocationAccuracy.best,
       );
 
+      // Utiliser les nouveaux noms de paramètres du constructeur GpsData
       return GpsData(
-        id: const Uuid().v4(),
-        deviceId: await _getDeviceId(),
-        lat: position.latitude,
-        lon: position.longitude,
-        timestamp: DateTime.now(),
+        idname: await _getDeviceId(),
+        latitude: position.latitude,
+        longitude: position.longitude,
+        datetime: DateTime.now(),
       );
     } catch (e) {
       throw Exception('Failed to get location: $e');
@@ -52,7 +51,8 @@ class GpsService {
 
   Future<String> _getDeviceId() async {
     // Utiliser un identifiant unique pour l'appareil
-    return 'mobile-device-${DateTime.now().millisecondsSinceEpoch}';
+    // Vous pouvez le rendre configurable ou utiliser l'ID du device
+    return 'MOBILE_${DateTime.now().millisecondsSinceEpoch}';
   }
 
   Stream<Position> getLocationStream() {

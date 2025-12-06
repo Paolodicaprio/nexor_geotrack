@@ -1,7 +1,6 @@
 class Constants {
-  static const String apiBaseUrl = 'http://10.0.2.2:8000'; // Android emulator
-  // static const String apiBaseUrl = 'http://localhost:8000'; // iOS simulator
-  // static const String apiBaseUrl = 'http://192.168.x.x:8000'; // Physical device
+  // Changer l'URL pour pointer vers votre API GeoTrack
+  static const String apiBaseUrl = 'https://portal.inma.ucl.ac.be/geotrack';
 
   // Storage keys
   static const String authTokenKey = 'auth_token';

@@ -1,32 +1,69 @@
 import 'package:flutter/material.dart';
-import 'package:geotrack_frontend/pages/register_page.dart';
-import 'package:provider/provider.dart';
 import 'package:geotrack_frontend/services/auth_service.dart';
-import 'package:geotrack_frontend/pages/forgot_pin_page.dart';
+import 'package:provider/provider.dart';
+import 'package:geotrack_frontend/pages/register_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
   @override
-  _LoginPageState createState() => _LoginPageState();
+  LoginPageState createState() => LoginPageState();
 }
 
-class _LoginPageState extends State<LoginPage> {
-  final TextEditingController _pinController = TextEditingController();
+class LoginPageState extends State<LoginPage> {
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _accessCodeController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
-  bool _obscurePin = true;
+  bool _showPassword = false;
 
-  // Couleurs personnalisées
   final Color _primaryGreen = const Color(0xFF2ECC40);
-  final Color _backgroundWhite = Colors.white;
 
   @override
   void initState() {
     super.initState();
-    _pinController.addListener(() {
-      setState(() {});
-    });
+    _checkExistingToken();
+  }
+
+  Future<void> _checkExistingToken() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    await authService.checkAuth();
+  }
+
+  Future<void> _handleLogin() async {
+    if (_formKey.currentState!.validate()) {
+      FocusScope.of(context).unfocus();
+
+      setState(() {
+        _isLoading = true;
+      });
+
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final result = await authService.login(
+        _emailController.text.trim(),
+        _accessCodeController.text.trim(),
+      );
+
+      setState(() {
+        _isLoading = false;
+      });
+
+      if (result.success) {
+        Navigator.pushReplacementNamed(context, '/dashboard');
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result.error ?? 'Erreur de connexion'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -34,12 +71,7 @@ class _LoginPageState extends State<LoginPage> {
     final authService = Provider.of<AuthService>(context);
 
     return Scaffold(
-      backgroundColor: _backgroundWhite,
-      appBar: AppBar(
-        backgroundColor: _primaryGreen,
-        elevation: 0,
-        title: const Text(''),
-      ),
+      backgroundColor: Colors.white,
       body: Center(
         child: SingleChildScrollView(
           child: Padding(
@@ -71,19 +103,55 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Text(
-                    'Entrez votre PIN',
-                    style: TextStyle(fontSize: 16, color: Colors.grey[700]),
+                  const Text(
+                    'Suivi GPS en temps réel',
+                    style: TextStyle(fontSize: 16, color: Colors.grey),
                   ),
                   const SizedBox(height: 24),
                   TextFormField(
-                    controller: _pinController,
-                    obscureText: _obscurePin,
+                    controller: _emailController,
                     decoration: InputDecoration(
-                      labelText: 'PIN',
+                      labelText: 'Email de l\'entreprise',
                       labelStyle: TextStyle(color: _primaryGreen),
                       filled: true,
-                      fillColor: _primaryGreen.withOpacity(0.08),
+                      fillColor: _primaryGreen.withAlpha((255 * 0.08).round()),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: _primaryGreen),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: _primaryGreen),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: _primaryGreen, width: 2),
+                      ),
+                      prefixIcon: Icon(Icons.email, color: _primaryGreen),
+                      hintText: 'ex: contact@votre-entreprise.com',
+                    ),
+                    keyboardType: TextInputType.emailAddress,
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Veuillez entrer votre email';
+                      }
+                      if (!RegExp(
+                        r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
+                      ).hasMatch(value)) {
+                        return 'Format d\'email invalide';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _accessCodeController,
+                    obscureText: !_showPassword,
+                    decoration: InputDecoration(
+                      labelText: 'Code d\'accès',
+                      labelStyle: TextStyle(color: _primaryGreen),
+                      filled: true,
+                      fillColor: _primaryGreen.withAlpha((255 * 0.08).round()),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide(color: _primaryGreen),
@@ -99,51 +167,53 @@ class _LoginPageState extends State<LoginPage> {
                       prefixIcon: Icon(Icons.lock, color: _primaryGreen),
                       suffixIcon: IconButton(
                         icon: Icon(
-                          _obscurePin ? Icons.visibility : Icons.visibility_off,
+                          _showPassword
+                              ? Icons.visibility_off
+                              : Icons.visibility,
                           color: _primaryGreen,
                         ),
                         onPressed: () {
                           setState(() {
-                            _obscurePin = !_obscurePin;
+                            _showPassword = !_showPassword;
                           });
                         },
                       ),
-                      counterText: '',
+                      hintText: 'Entrez votre code d\'accès à 8 caractères',
                     ),
-                    keyboardType: TextInputType.number,
-                    maxLength: 4,
                     validator: (value) {
                       if (value == null || value.isEmpty) {
-                        return 'Veuillez entrer votre PIN';
+                        return 'Veuillez entrer votre code d\'accès';
                       }
-                      if (value.length != 4) {
-                        return 'Le PIN doit contenir 4 chiffres';
+                      if (value.length != 8) {
+                        return 'Le code d\'accès doit avoir 8 caractères';
                       }
                       return null;
                     },
                   ),
-                  const SizedBox(height: 16),
-                  if (authService.isBlocked())
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Text(
-                        'Compte verrouillé. Réessayez dans ${authService.getRemainingBlockTime().inSeconds} secondes',
-                        style: const TextStyle(
-                          color: Colors.red,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        textAlign: TextAlign.center,
+                  if (authService.isBlocked()) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.red),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.warning, color: Colors.red),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Compte bloqué. Réessayez dans ${authService.getRemainingBlockTime().inSeconds} secondes',
+                              style: const TextStyle(color: Colors.red),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  if (authService.failedAttempts > 0 &&
-                      !authService.isBlocked())
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Text(
-                        'Tentatives échouées: ${authService.failedAttempts}/3',
-                        style: TextStyle(color: Colors.orange[700]),
-                      ),
-                    ),
+                  ],
+                  const SizedBox(height: 24),
                   SizedBox(
                     width: double.infinity,
                     height: 48,
@@ -157,7 +227,7 @@ class _LoginPageState extends State<LoginPage> {
                         elevation: 2,
                       ),
                       onPressed:
-                          authService.isBlocked() || _isLoading
+                          (authService.isBlocked() || _isLoading)
                               ? null
                               : _handleLogin,
                       child:
@@ -166,7 +236,7 @@ class _LoginPageState extends State<LoginPage> {
                                 color: Colors.white,
                               )
                               : const Text(
-                                'Connexion',
+                                'Se connecter',
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
@@ -174,52 +244,20 @@ class _LoginPageState extends State<LoginPage> {
                               ),
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  TextButton(
-                    onPressed:
-                        authService.isBlocked()
-                            ? null
-                            : () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => const RegisterPage(),
-                                ),
-                              );
-                            },
-                    child: Text(
-                      'Créer un compte',
-                      style: TextStyle(
-                        color:
-                            authService.isBlocked()
-                                ? Colors.grey
-                                : _primaryGreen,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 15,
-                        decoration: TextDecoration.underline,
-                      ),
-                    ),
-                  ),
                   const SizedBox(height: 16),
                   TextButton(
-                    onPressed:
-                        authService.isBlocked()
-                            ? null
-                            : () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => const ForgotPinPage(),
-                                ),
-                              );
-                            },
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const RegisterPage(),
+                        ),
+                      );
+                    },
                     child: Text(
-                      'Code PIN oublié ?',
+                      'Pas encore de compte ? Créer un compte',
                       style: TextStyle(
-                        color:
-                            authService.isBlocked()
-                                ? Colors.grey
-                                : _primaryGreen,
+                        color: _primaryGreen,
                         fontWeight: FontWeight.w600,
                         fontSize: 15,
                         decoration: TextDecoration.underline,
@@ -235,41 +273,10 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  Future<void> _handleLogin() async {
-    if (_formKey.currentState!.validate()) {
-      FocusScope.of(context).unfocus();
-
-      setState(() {
-        _isLoading = true;
-      });
-
-      final authService = Provider.of<AuthService>(context, listen: false);
-      final result = await authService.login(_pinController.text);
-
-      setState(() {
-        _isLoading = false;
-      });
-
-      if (result.success) {
-        Navigator.pushReplacementNamed(context, '/dashboard');
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result.error ?? 'Échec de la connexion'),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
-        );
-      }
-    }
-  }
-
   @override
   void dispose() {
-    _pinController.dispose();
+    _emailController.dispose();
+    _accessCodeController.dispose();
     super.dispose();
   }
 }

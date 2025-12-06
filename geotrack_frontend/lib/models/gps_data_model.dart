@@ -1,60 +1,90 @@
-import 'package:uuid/uuid.dart';
-
 class GpsData {
-  final String? id;
-  final String deviceId;
-  final double lat;
-  final double lon;
-  final DateTime timestamp;
-  final bool? synced;
+  final int? id;
+  final String idname; // deviceId dans l'API
+  final double latitude; // lat dans l'API
+  final double longitude; // lon dans l'API
+  final DateTime datetime; // timestamp
   final DateTime? createdAt;
+  final bool? synced;
 
   GpsData({
-    String? id,
-    required this.deviceId,
-    required this.lat,
-    required this.lon,
-    required this.timestamp,
-    this.synced,
+    this.id,
+    required this.idname,
+    required this.latitude,
+    required this.longitude,
+    required this.datetime,
     this.createdAt,
-  }) : id = id ?? const Uuid().v4();
+    this.synced,
+  });
 
   factory GpsData.fromJson(Map<String, dynamic> json) {
     return GpsData(
-      id: json['id']?.toString(),
-      deviceId: json['device_id'],
-      lat: json['lat']?.toDouble() ?? 0.0,
-      lon: json['lon']?.toDouble() ?? 0.0,
-      timestamp: DateTime.parse(json['timestamp']),
-      synced: json['synced'],
+      id: json['id']?.toInt(),
+      idname: json['idname'] ?? json['device_id'] ?? 'UNKNOWN',
+      // Accepter les deux formats
+      latitude: (json['latitude'] ?? json['lat'] ?? 0.0).toDouble(),
+      longitude: (json['longitude'] ?? json['lon'] ?? 0.0).toDouble(),
+      datetime:
+          json['datetime'] != null
+              ? DateTime.parse(json['datetime'])
+              : DateTime.now(),
       createdAt:
           json['created_at'] != null
               ? DateTime.parse(json['created_at'])
               : null,
+      synced: json['synced'] ?? true,
     );
   }
 
+  // Pour l'envoi, utiliser une méthode intelligente
+  Map<String, dynamic> toApiJson({bool useLatLon = false}) {
+    if (useLatLon) {
+      return {
+        'idname': idname,
+        'lat': latitude,
+        'lon': longitude,
+        'datetime': datetime.toIso8601String(),
+      };
+    } else {
+      return {
+        'idname': idname,
+        'latitude': latitude,
+        'longitude': longitude,
+        'datetime': datetime.toIso8601String(),
+      };
+    }
+  }
+
+  // Pour le stockage local
   Map<String, dynamic> toJson() {
     return {
-      'id': id,
-      'device_id': deviceId,
-      'lat': lat,
-      'lon': lon,
-      'timestamp': timestamp.toIso8601String(),
-      'synced': synced, // Ajouter synced au JSON
-      'created_at': createdAt?.toIso8601String(),
+      if (id != null) 'id': id,
+      'idname': idname,
+      'latitude': latitude,
+      'longitude': longitude,
+      'datetime': datetime.toIso8601String(),
+      if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+      'synced': synced ?? false,
     };
   }
 
-  GpsData copyWith({bool? synced}) {
+  GpsData copyWith({
+    int? id,
+    String? idname,
+    double? latitude,
+    double? longitude,
+    DateTime? datetime,
+    DateTime? createdAt,
+    bool? synced,
+  }) {
     return GpsData(
-      id: id,
-      deviceId: deviceId,
-      lat: lat,
-      lon: lon,
-      timestamp: timestamp,
+      id: id ?? this.id,
+      idname: idname ?? this.idname,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
+      datetime: datetime ?? this.datetime,
+      createdAt: createdAt ?? this.createdAt,
       synced: synced ?? this.synced,
-      // autres champs...
     );
   }
 }
