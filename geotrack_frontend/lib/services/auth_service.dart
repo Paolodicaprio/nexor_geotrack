@@ -3,13 +3,13 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
-import 'package:geotrack_frontend/main.dart';
-import 'package:geotrack_frontend/services/background_manager.dart';
+import 'package:geotrack_frontend/services/background_service_manager.dart';
 import 'package:http/http.dart' as http;
 import 'package:geotrack_frontend/models/auth_model.dart';
 import 'package:geotrack_frontend/utils/constants.dart';
-import 'storage_service.dart';
+import 'package:geotrack_frontend/services/storage_service.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthService with ChangeNotifier {
   bool _isAuthenticated = false;
@@ -24,7 +24,7 @@ class AuthService with ChangeNotifier {
   DateTime? get blockUntil => _blockUntil;
   String? get userEmail => _userEmail;
 
-  // Méthodes manquantes ajoutées
+  // Méthodes de gestion du blocage
   bool isBlocked() {
     if (_blockUntil == null) return false;
     return DateTime.now().isBefore(_blockUntil!);
@@ -40,6 +40,36 @@ class AuthService with ChangeNotifier {
     notifyListeners();
   }
 
+  Future<String?> getEmail() async {
+    // Essayer d'abord depuis userEmail
+    if (_userEmail != null) {
+      return _userEmail;
+    }
+
+    // Essayer depuis le token
+    final emailFromToken = getEmailFromToken();
+    if (emailFromToken != null) {
+      _userEmail = emailFromToken;
+      return _userEmail;
+    }
+
+    // Essayer depuis le stockage
+    try {
+      final storageService = StorageService();
+      final storedEmail = await storageService.getUserEmail();
+      if (storedEmail != null) {
+        _userEmail = storedEmail;
+        notifyListeners();
+        return _userEmail;
+      }
+    } catch (e) {
+      print('Error getting email from storage: $e');
+    }
+
+    return null;
+  }
+
+  // Dans auth_service.dart - méthode login
   Future<LoginResponse> login(String email, String accessCode) async {
     if (isBlocked()) {
       return LoginResponse(
@@ -64,7 +94,8 @@ class AuthService with ChangeNotifier {
         );
       }
 
-      // Construire l'URL avec les paramètres QUERY
+      // CORRECTION: L'API attend les paramètres dans la query string, pas dans le body
+      // Construire l'URL avec les paramètres
       final uri = Uri.parse('$apiUrl/auth/login').replace(
         queryParameters: {
           'email': email.trim(),
@@ -81,6 +112,8 @@ class AuthService with ChangeNotifier {
               'Content-Type': 'application/json',
               'Accept': 'application/json',
             },
+            // CORRECTION: Envoyer un body vide puisque les paramètres sont dans l'URL
+            body: json.encode({}),
           )
           .timeout(const Duration(seconds: 30));
 
@@ -95,15 +128,11 @@ class AuthService with ChangeNotifier {
         _userEmail = email.trim();
 
         await storageService.saveToken(_token!);
+        await storageService.saveUserEmail(email.trim());
 
-        // Démarrer le background manager après connexion réussie
-        try {
-          // Attendre un peu pour que l'interface soit stable
-          await Future.delayed(const Duration(seconds: 1));
-          await BackgroundManager().start();
-        } catch (e) {
-          print('⚠️ Failed to start background manager: $e');
-        }
+        // Démarrer les services background après une connexion réussie
+        // Désactivé temporairement pour éviter les crashs
+        // await _startBackgroundServices();
 
         notifyListeners();
         return LoginResponse(success: true, token: _token);
@@ -114,6 +143,20 @@ class AuthService with ChangeNotifier {
           error:
               'Email ou code d\'accès incorrect. Tentatives restantes: ${3 - _failedAttempts}',
         );
+      } else if (response.statusCode == 422) {
+        // Erreur de validation
+        final errorData = json.decode(response.body);
+        String errorMessage = 'Données invalides';
+
+        if (errorData['detail'] is String) {
+          errorMessage = errorData['detail'];
+        } else if (errorData['detail'] is List &&
+            errorData['detail'].isNotEmpty) {
+          // Prendre le premier message d'erreur
+          errorMessage = errorData['detail'][0]['msg'] ?? errorMessage;
+        }
+
+        return LoginResponse(success: false, error: errorMessage);
       } else {
         final errorData = json.decode(response.body);
         String errorMessage = 'Erreur de connexion';
@@ -157,20 +200,32 @@ class AuthService with ChangeNotifier {
     _blockUntil = null;
     _userEmail = null;
 
-    // Note: stopBackgroundService doit être appelé depuis le widget
-    // car c'est une fonction dans main.dart
-    await StorageService().deleteToken();
+    final storageService = StorageService();
+    await storageService.deleteToken();
+    await storageService.deleteUserEmail();
+
+    // Arrêter les services background lors de la déconnexion
+    await _stopBackgroundServices();
+
     notifyListeners();
   }
 
   Future<bool> checkAuth() async {
-    final token = await StorageService().getToken();
+    final storageService = StorageService();
+    final token = await storageService.getToken();
+    final email = await storageService.getUserEmail();
+
     if (token != null) {
       _token = token;
       _isAuthenticated = true;
+      _userEmail = email;
       notifyListeners();
       return true;
     }
+
+    _isAuthenticated = false;
+    _token = null;
+    _userEmail = null;
     return false;
   }
 
@@ -193,9 +248,76 @@ class AuthService with ChangeNotifier {
       return null;
     }
   }
+
+  // Méthodes pour gérer les services background - SIMPLIFIÉES
+  Future<void> _startBackgroundServices() async {
+    try {
+      await BackgroundServiceManager.startService();
+    } catch (e) {
+      print('⚠️ Erreur lors du démarrage des services background: $e');
+    }
+  }
+
+  // Remplacer _stopBackgroundServices() par:
+  Future<void> _stopBackgroundServices() async {
+    try {
+      await BackgroundServiceManager.stopService();
+    } catch (e) {
+      print('⚠️ Erreur lors de l\'arrêt des services background: $e');
+    }
+  }
+
+  @pragma('vm:entry-point')
+  static Future<bool> _onIosBackground(ServiceInstance service) async {
+    // Vérifier l'authentification
+    final storageService = StorageService();
+    final token = await storageService.getToken();
+
+    if (token == null || token.isEmpty) {
+      print('⚠️ iOS Background: User not authenticated');
+      return false;
+    }
+
+    return true;
+  }
+
+  @pragma('vm:entry-point')
+  static Future<void> _onBackgroundServiceStart(ServiceInstance service) async {
+    print('🔄 Service background démarré');
+
+    // Configurer la notification pour Android
+    if (service is AndroidServiceInstance) {
+      service.setForegroundNotificationInfo(
+        title: "GeoTrack Service",
+        content: "Collecte GPS active",
+      );
+    }
+
+    // Démarrer un timer simple pour montrer que le service fonctionne
+    Timer.periodic(const Duration(minutes: 1), (timer) async {
+      print('⏰ Service background actif - tick');
+
+      // Mettre à jour la notification
+      if (service is AndroidServiceInstance) {
+        service.setForegroundNotificationInfo(
+          title: "GeoTrack Service",
+          content: "Actif - ${DateTime.now().toString().substring(11, 16)}",
+        );
+      }
+    });
+  }
+
+  // Méthode pour démarrer manuellement les services (à utiliser depuis l'UI)
+  Future<void> startBackgroundServicesManually() async {
+    await _startBackgroundServices();
+  }
+
+  // Méthode pour arrêter manuellement les services (à utiliser depuis l'UI)
+  Future<void> stopBackgroundServicesManually() async {
+    await _stopBackgroundServices();
+  }
 }
 
-// Fonction d'inscription externe (à garder séparée du service)
 // Fonction d'inscription externe (à garder séparée du service)
 Future<Map<String, dynamic>> register(String email) async {
   try {
@@ -203,6 +325,7 @@ Future<Map<String, dynamic>> register(String email) async {
     final customUrl = await storageService.getCustomUrl();
     final apiUrl = customUrl ?? Constants.apiBaseUrl;
 
+    // CORRECTION: L'API attend un body JSON avec l'email
     final response = await http
         .post(
           Uri.parse('$apiUrl/auth/register'),

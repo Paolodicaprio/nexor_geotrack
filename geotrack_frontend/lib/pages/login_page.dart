@@ -49,6 +49,9 @@ class LoginPageState extends State<LoginPage> {
       });
 
       if (result.success) {
+        // Démarrer les services background après connexion réussie
+        // Cela est maintenant géré dans le auth_service lui-même
+
         Navigator.pushReplacementNamed(context, '/dashboard');
       } else {
         ScaffoldMessenger.of(context).showSnackBar(

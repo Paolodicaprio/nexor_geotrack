@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:developer';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:geotrack_frontend/models/config_model.dart';
@@ -24,11 +23,16 @@ class ApiService {
 
   Future<Map<String, String>> _getHeaders() async {
     final token = await StorageService().getToken();
-    return {
+    final headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
-      'Authorization': 'Bearer $token',
     };
+
+    if (token != null && token.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $token';
+    }
+
+    return headers;
   }
 
   Future<Config> getConfig() async {
@@ -36,28 +40,30 @@ class ApiService {
       final apiUrl = await getApiUrl();
       final headers = await _getHeaders();
 
-      log('🔄 GET Config from: $apiUrl/time-config');
+      print('🔄 GET Config from: $apiUrl/time-config');
 
       final response = await http
           .get(Uri.parse('$apiUrl/time-config'), headers: headers)
           .timeout(const Duration(seconds: 30));
 
-      log('📥 Config Response: ${response.statusCode} - ${response.body}');
+      print('📥 Config Response: ${response.statusCode} - ${response.body}');
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         return Config.fromJson(data);
       } else if (response.statusCode == 404) {
         // Configuration non trouvée, créer une configuration par défaut
-        log('⚠️ Config not found, creating default...');
+        print('⚠️ Config not found, creating default...');
         return await createConfig(300, 600); // 5 min et 10 min par défaut
+      } else if (response.statusCode == 401) {
+        throw Exception('Non authentifié. Token invalide ou expiré');
       } else {
         throw Exception(
           'Failed to load config: ${response.statusCode} - ${response.body}',
         );
       }
     } catch (e) {
-      log('❌ Error loading config: $e');
+      print('❌ Error loading config: $e');
       rethrow;
     }
   }
@@ -67,72 +73,44 @@ class ApiService {
       final apiUrl = await getApiUrl();
       final headers = await _getHeaders();
 
-      // Tester les deux formats possibles
-      final attempts = [
-        // Format 1: latitude/longitude (selon l'erreur)
-        {
-          "idname": data.idname,
-          "latitude": data.latitude,
-          "longitude": data.longitude,
-          "datetime": data.datetime.toIso8601String(),
-        },
-        // Format 2: lat/lon (selon la documentation)
-        {
-          "idname": data.idname,
-          "lat": data.latitude,
-          "lon": data.longitude,
-          "datetime": data.datetime.toIso8601String(),
-        },
-        // Format 3: Tous les champs possibles
-        {
-          "idname": data.idname,
-          "latitude": data.latitude,
-          "longitude": data.longitude,
-          "lat": data.latitude,
-          "lon": data.longitude,
-          "datetime": data.datetime.toIso8601String(),
-        },
-      ];
+      // CORRECTION: Utiliser uniquement le format attendu par l'API
+      final payload = {
+        "idname": data.idname,
+        "latitude": data.latitude,
+        "longitude": data.longitude,
+        "datetime": data.datetime.toIso8601String(),
+      };
 
-      for (int i = 0; i < attempts.length; i++) {
-        try {
-          final body = attempts[i];
-          log('📍 Attempt ${i + 1}: Sending GPS data with format ${i + 1}');
-          log('📍 Payload: $body');
+      print('📍 Sending GPS data to: $apiUrl/location');
+      print('📍 Payload: $payload');
 
-          final response = await http
-              .post(
-                Uri.parse('$apiUrl/location'),
-                headers: headers,
-                body: json.encode(body),
-              )
-              .timeout(const Duration(seconds: 30));
+      final response = await http
+          .post(
+            Uri.parse('$apiUrl/location'),
+            headers: headers,
+            body: json.encode(payload),
+          )
+          .timeout(const Duration(seconds: 30));
 
-          log('📍 Response ${i + 1}: ${response.statusCode}');
+      print('📍 Response: ${response.statusCode} - ${response.body}');
 
-          if (response.statusCode == 200) {
-            final responseData = json.decode(response.body);
-            log('✅ Success with format ${i + 1}');
-            return GpsData.fromJson(responseData);
-          } else if (response.statusCode == 422) {
-            log('⚠️ Format ${i + 1} failed, trying next...');
-            continue;
-          } else {
-            throw Exception(
-              'Failed to send GPS data: ${response.statusCode} - ${response.body}',
-            );
-          }
-        } catch (e) {
-          if (i == attempts.length - 1) {
-            rethrow;
-          }
-          log('⚠️ Attempt ${i + 1} error: $e');
-        }
+      if (response.statusCode == 200) {
+        final responseData = json.decode(response.body);
+        print('✅ GPS data sent successfully');
+        return GpsData.fromJson(responseData);
+      } else if (response.statusCode == 422) {
+        final error = json.decode(response.body);
+        print('❌ Validation error: $error');
+        throw Exception('Validation error: ${error['detail']}');
+      } else if (response.statusCode == 401) {
+        throw Exception('Non authentifié. Token invalide ou expiré');
+      } else {
+        throw Exception(
+          'Failed to send GPS data: ${response.statusCode} - ${response.body}',
+        );
       }
-
-      throw Exception('All format attempts failed');
     } catch (e) {
-      log('❌ Error sending GPS data: $e');
+      print('❌ Error sending GPS data: $e');
       rethrow;
     }
   }
@@ -157,7 +135,7 @@ class ApiService {
         '$apiUrl/location',
       ).replace(queryParameters: params);
 
-      log('📡 GET GPS Data from: $url');
+      print('📡 GET GPS Data from: $url');
 
       final response = await http
           .get(url, headers: headers)
@@ -166,11 +144,13 @@ class ApiService {
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         return data.map((json) => GpsData.fromJson(json)).toList();
+      } else if (response.statusCode == 401) {
+        throw Exception('Non authentifié. Token invalide ou expiré');
       } else {
         throw Exception('Failed to load GPS data: ${response.statusCode}');
       }
     } catch (e) {
-      log('❌ Error loading GPS data: $e');
+      print('❌ Error loading GPS data: $e');
       rethrow;
     }
   }
@@ -180,8 +160,8 @@ class ApiService {
       final apiUrl = await getApiUrl();
       final headers = await _getHeaders();
 
-      log('🔄 PUT Request to: $apiUrl/time-config');
-      log('📦 Payload: $updates');
+      print('🔄 PUT Request to: $apiUrl/time-config');
+      print('📦 Payload: $updates');
 
       final response = await http
           .put(
@@ -191,19 +171,21 @@ class ApiService {
           )
           .timeout(const Duration(seconds: 30));
 
-      log('📤 Response Status: ${response.statusCode}');
-      log('📤 Response Body: ${response.body}');
+      print('📤 Response Status: ${response.statusCode}');
+      print('📤 Response Body: ${response.body}');
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         return Config.fromJson(data);
+      } else if (response.statusCode == 401) {
+        throw Exception('Non authentifié. Token invalide ou expiré');
       } else {
         throw Exception(
           'Failed to update config: ${response.statusCode} - ${response.body}',
         );
       }
     } catch (e) {
-      log('❌ Error in updateConfig: $e');
+      print('❌ Error in updateConfig: $e');
       rethrow;
     }
   }
@@ -213,7 +195,7 @@ class ApiService {
       final apiUrl = await getApiUrl();
       final headers = await _getHeaders();
 
-      log('🆕 Creating config at: $apiUrl/time-config');
+      print('🆕 Creating config at: $apiUrl/time-config');
 
       final response = await http
           .post(
@@ -226,21 +208,38 @@ class ApiService {
           )
           .timeout(const Duration(seconds: 30));
 
-      log(
+      print(
         '🆕 Create Config Response: ${response.statusCode} - ${response.body}',
       );
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         return Config.fromJson(data);
+      } else if (response.statusCode == 401) {
+        throw Exception('Non authentifié. Token invalide ou expiré');
       } else {
         throw Exception(
           'Failed to create config: ${response.statusCode} - ${response.body}',
         );
       }
     } catch (e) {
-      log('❌ Error creating config: $e');
+      print('❌ Error creating config: $e');
       rethrow;
+    }
+  }
+
+  // Nouvelle méthode pour vérifier la santé de l'API
+  Future<bool> checkApiHealth() async {
+    try {
+      final apiUrl = await getApiUrl();
+      final response = await http
+          .get(Uri.parse('$apiUrl/health'))
+          .timeout(const Duration(seconds: 10));
+
+      return response.statusCode == 200;
+    } catch (e) {
+      print('❌ API Health check failed: $e');
+      return false;
     }
   }
 }

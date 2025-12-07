@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:geotrack_frontend/models/config_model.dart';
 import 'package:geotrack_frontend/services/api_service.dart';
+import 'package:geotrack_frontend/services/database_service.dart';
 import 'package:geotrack_frontend/services/storage_service.dart';
 import 'package:provider/provider.dart';
 import 'package:geotrack_frontend/services/auth_service.dart';
@@ -112,15 +113,6 @@ class _SettingsPageState extends State<SettingsPage> {
           final prefs = await SharedPreferences.getInstance();
           await prefs.setInt('collect_interval', collectInterval);
           await prefs.setInt('sync_interval', syncInterval);
-
-          // Redémarrer le background manager avec les nouveaux intervalles
-          try {
-            final backgroundManager = BackgroundManager();
-            await backgroundManager.stop();
-            await backgroundManager.start();
-          } catch (e) {
-            print('⚠️ Error restarting background manager: $e');
-          }
 
           if (!mounted) return;
 
@@ -234,7 +226,7 @@ class _SettingsPageState extends State<SettingsPage> {
           (context) => AlertDialog(
             title: const Text('Effacer toutes les données'),
             content: const Text(
-              'Êtes-vous sûr de vouloir effacer toutes les données locales ? '
+              'Êtes-vous sûr de vouloir effacer toutes les données GPS locales ? '
               'Cette action est irréversible.',
             ),
             actions: [
@@ -255,11 +247,12 @@ class _SettingsPageState extends State<SettingsPage> {
 
     if (confirmed == true) {
       try {
-        await StorageService().clearAllData();
+        final databaseService = DatabaseService();
+        await databaseService.clearAllData();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Toutes les données ont été effacées'),
+              content: Text('Toutes les données GPS ont été effacées'),
               backgroundColor: Colors.green,
             ),
           );
@@ -281,10 +274,6 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
 
-    // Récupérer l'email de différentes manières
-    String? userEmail =
-        authService.userEmail ?? authService.getEmailFromToken();
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Paramètres'),
@@ -295,6 +284,154 @@ class _SettingsPageState extends State<SettingsPage> {
         padding: const EdgeInsets.all(16),
         child: ListView(
           children: [
+            // Section Information utilisateur
+            Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.person, color: Colors.green),
+                        SizedBox(width: 12),
+                        Text(
+                          'Information du compte',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Email de l'utilisateur
+                    FutureBuilder<String?>(
+                      future: _getUserEmail(authService),
+                      builder: (context, snapshot) {
+                        String email;
+                        bool isLoading = false;
+
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          email = 'Chargement...';
+                          isLoading = true;
+                        } else if (snapshot.hasError) {
+                          email = 'Erreur de chargement';
+                        } else if (snapshot.hasData && snapshot.data != null) {
+                          email = snapshot.data!;
+                        } else {
+                          email = 'Non disponible';
+                        }
+
+                        return ListTile(
+                          leading:
+                              isLoading
+                                  ? const CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.green,
+                                    ),
+                                  )
+                                  : const Icon(Icons.email, color: Colors.grey),
+                          title: const Text(
+                            'Email',
+                            style: TextStyle(fontSize: 14, color: Colors.grey),
+                          ),
+                          subtitle: Text(
+                            email,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black,
+                            ),
+                          ),
+                          contentPadding: EdgeInsets.zero,
+                        );
+                      },
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    // Statut de connexion
+                    ListTile(
+                      leading: Icon(
+                        authService.isAuthenticated
+                            ? Icons.check_circle
+                            : Icons.error,
+                        color:
+                            authService.isAuthenticated
+                                ? Colors.green
+                                : Colors.orange,
+                      ),
+                      title: Text(
+                        authService.isAuthenticated
+                            ? 'Connecté'
+                            : 'Non connecté',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color:
+                              authService.isAuthenticated
+                                  ? Colors.green
+                                  : Colors.orange,
+                        ),
+                      ),
+                      subtitle: const Text(
+                        'Statut d\'authentification',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+
+                    const Divider(height: 24),
+
+                    // Message d'information
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.amber[50],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.amber),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.info, color: Colors.amber, size: 20),
+                              SizedBox(width: 8),
+                              Text(
+                                'Important',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.amber,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Le code d\'accès est généré une seule fois lors de l\'inscription. '
+                            'Conservez-le précieusement car il ne peut pas être modifié.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[700],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+
             // Section Intervalles
             Card(
               elevation: 2,
@@ -387,126 +524,6 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                     ],
                   ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // Section Information utilisateur - CORRIGÉE
-            Card(
-              elevation: 2,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Row(
-                      children: [
-                        Icon(Icons.person, color: Colors.green),
-                        SizedBox(width: 12),
-                        Text(
-                          'Information du compte',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Email de l'utilisateur
-                    ListTile(
-                      leading: const Icon(Icons.email, color: Colors.grey),
-                      title: const Text(
-                        'Email',
-                        style: TextStyle(fontSize: 14, color: Colors.grey),
-                      ),
-                      subtitle: Text(
-                        userEmail ?? 'Non disponible',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black,
-                        ),
-                      ),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-
-                    const SizedBox(height: 12),
-
-                    // Statut de connexion
-                    ListTile(
-                      leading: Icon(
-                        authService.isAuthenticated
-                            ? Icons.check_circle
-                            : Icons.error,
-                        color:
-                            authService.isAuthenticated
-                                ? Colors.green
-                                : Colors.orange,
-                      ),
-                      title: Text(
-                        authService.isAuthenticated
-                            ? 'Connecté'
-                            : 'Non connecté',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color:
-                              authService.isAuthenticated
-                                  ? Colors.green
-                                  : Colors.orange,
-                        ),
-                      ),
-                      subtitle: const Text(
-                        'Statut d\'authentification',
-                        style: TextStyle(fontSize: 12),
-                      ),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-
-                    const Divider(height: 24),
-
-                    // Message d'information
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.amber[50],
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.amber),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Row(
-                            children: [
-                              Icon(Icons.info, color: Colors.amber, size: 20),
-                              SizedBox(width: 8),
-                              Text(
-                                'Important',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.amber,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Le code d\'accès est généré une seule fois lors de l\'inscription. '
-                            'Conservez-le précieusement car il ne peut pas être modifié.',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey[700],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
                 ),
               ),
             ),
@@ -708,6 +725,36 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       ),
     );
+  }
+
+  Future<String?> _getUserEmail(AuthService authService) async {
+    // Essayer d'abord depuis AuthService
+    if (authService.userEmail != null) {
+      return authService.userEmail;
+    }
+
+    // Essayer depuis le token
+    final emailFromToken = authService.getEmailFromToken();
+    if (emailFromToken != null) {
+      return emailFromToken;
+    }
+
+    // Essayer depuis StorageService
+    try {
+      final storageService = StorageService();
+      final storedEmail = await storageService.getUserEmail();
+      if (storedEmail != null) {
+        // Mettre à jour AuthService avec l'email trouvé
+        if (mounted) {
+          authService.setUserEmail(storedEmail);
+        }
+        return storedEmail;
+      }
+    } catch (e) {
+      print('Erreur récupération email depuis Storage: $e');
+    }
+
+    return null;
   }
 
   @override

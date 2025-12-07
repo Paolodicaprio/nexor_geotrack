@@ -3,15 +3,18 @@ import 'package:flutter/material.dart';
 import 'package:geotrack_frontend/models/config_model.dart';
 import 'package:geotrack_frontend/models/gps_data_model.dart';
 import 'package:geotrack_frontend/services/api_service.dart';
+import 'package:geotrack_frontend/services/auth_service.dart';
 import 'package:geotrack_frontend/services/gps_service.dart';
 import 'package:geotrack_frontend/services/sync_service.dart';
 import 'package:geotrack_frontend/services/storage_service.dart';
+import 'package:geotrack_frontend/services/database_service.dart';
 import 'package:geotrack_frontend/widgets/connection_status.dart';
 import 'package:geotrack_frontend/pages/settings_page.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geotrack_frontend/services/auto_collect_service.dart';
 import 'package:geotrack_frontend/services/background_manager.dart';
+import 'package:provider/provider.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -21,11 +24,14 @@ class DashboardPage extends StatefulWidget {
 }
 
 class _DashboardPageState extends State<DashboardPage>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   final GpsService _gpsService = GpsService();
   final SyncService _syncService = SyncService();
   final StorageService _storageService = StorageService();
-  final BackgroundManager _backgroundManager = BackgroundManager();
+  final DatabaseService _databaseService = DatabaseService();
+  final GlobalKey<RefreshIndicatorState> _refreshIndicatorKey =
+      GlobalKey<RefreshIndicatorState>();
+
   Config? _currentConfig;
   bool _configLoading = false;
 
@@ -43,90 +49,116 @@ class _DashboardPageState extends State<DashboardPage>
   int _collectInterval = 5; // en minutes
   int _syncInterval = 10; // en minutes
 
-  // Ajout des variables d'état pour les données
+  // Variables d'état pour les données
   List<GpsData> _pendingData = [];
   List<GpsData> _historyData = [];
   bool _pendingLoading = true;
   bool _historyLoading = true;
+
+  // Variables statiques pour préserver l'état entre les hot reloads
+  static DateTime? _lastCollectionTime;
+  static DateTime? _lastSyncTime;
+  static bool _timersInitialized = false;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
 
-    // Vérifier et démarrer le background manager si nécessaire
-    _checkAndStartBackgroundManager();
+    // S'abonner aux changements du cycle de vie
+    WidgetsBinding.instance.addObserver(this);
 
     // Initialiser en séquence
     _initializeApp();
   }
 
-  Future<void> _checkAndStartBackgroundManager() async {
-    try {
-      final token = await _storageService.getToken();
-      if (token != null && token.isNotEmpty) {
-        // Démarrer après un petit délai pour que l'interface soit stable
-        await Future.delayed(const Duration(seconds: 2));
-        await _backgroundManager.start();
-        print('✅ Background manager started from dashboard');
-      }
-    } catch (e) {
-      print('⚠️ Failed to start background manager: $e');
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+
+    if (state == AppLifecycleState.paused) {
+      // L'app va en arrière-plan
+      print('📱 App en arrière-plan');
+    } else if (state == AppLifecycleState.resumed) {
+      // L'app revient au premier plan
+      print('📱 App au premier plan - Actualisation des données');
+      _refreshData();
     }
   }
 
   Future<void> _initializeApp() async {
     try {
-      // 1. Charger la configuration
+      // 1. Charger les intervalles depuis le cache
+      await _loadIntervals();
+
+      // 2. Charger les données
+      await _loadAllData();
+
+      // 3. Charger la configuration API
       await _loadConfig();
 
-      // 2. Initialiser les intervalles et timers
-      await _initIntervalsAndTimers();
+      // 4. Initialiser les timers si pas déjà fait
+      if (!_timersInitialized) {
+        _initTimers();
+        _timersInitialized = true;
+      }
 
-      // 3. Charger les données
-      await Future.wait([_loadStats(), _loadPendingData(), _loadHistoryData()]);
+      // 5. Initialiser les prochains temps
+      _initNextTimes();
 
-      // 4. Démarrer les vérifications
+      // 6. Démarrer les vérifications
       _startPreferencesChecker();
 
-      // 5. Première collecte immédiate
-      await _performAutoCollect();
+      // 7. Démarrer le background manager
+      _startBackgroundManager();
     } catch (e) {
-      print('❌ Initialization error: $e');
-      // Continuer même en cas d'erreur
-      await _loadIntervals(); // Charger les intervalles depuis le cache
-      setState(() {
-        _nextCollection = DateTime.now().add(
-          Duration(minutes: _collectInterval),
-        );
-        _nextSync = DateTime.now().add(Duration(minutes: _syncInterval));
-      });
+      print('❌ Erreur d\'initialisation: $e');
+      // Continuer avec les valeurs par défaut
+      await _loadIntervals();
+      _initNextTimes();
     }
   }
 
-  Future<void> _initIntervalsAndTimers() async {
-    // Charger d'abord depuis SharedPreferences
-    await _loadIntervals();
-
-    // Mettre à jour les compteurs
+  void _initNextTimes() {
+    // Utiliser les temps sauvegardés ou calculer de nouveaux
     setState(() {
-      _nextCollection = DateTime.now().add(Duration(minutes: _collectInterval));
-      _nextSync = DateTime.now().add(Duration(minutes: _syncInterval));
+      _nextCollection =
+          _lastCollectionTime ??
+          DateTime.now().add(Duration(minutes: _collectInterval));
+      _nextSync =
+          _lastSyncTime ?? DateTime.now().add(Duration(minutes: _syncInterval));
     });
+  }
 
+  void _initTimers() {
     // Annuler les timers existants
     _collectTimer?.cancel();
     _syncTimer?.cancel();
+    _statsTimer?.cancel();
 
-    // Démarrer les timers avec les nouveaux intervalles
-    _startAutoCollect();
-    _startAutoSync();
+    // Démarrer les timers de collecte
+    _collectTimer = Timer.periodic(
+      Duration(minutes: _collectInterval),
+      (timer) => _performAutoCollect(),
+    );
 
-    // Démarrer le timer des statistiques
-    _startStatsTimer();
+    // Démarrer les timers de synchronisation
+    _syncTimer = Timer.periodic(
+      Duration(minutes: _syncInterval),
+      (timer) => _performAutoSync(),
+    );
+
+    // Timer pour mettre à jour le compte à rebours
+    _statsTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) {
+        setState(() {
+          // Forcer le recalcul du compte à rebours
+        });
+      }
+    });
 
     print(
-      '⏰ Timers initialized: collect=$_collectInterval min, sync=$_syncInterval min',
+      '⏰ Timers initialisés: collecte=$_collectInterval min, sync=$_syncInterval min',
     );
   }
 
@@ -136,7 +168,7 @@ class _DashboardPageState extends State<DashboardPage>
       final apiService = ApiService();
       final config = await apiService.getConfig();
 
-      // Convertir secondes en minutes pour l'interface
+      // Convertir secondes en minutes
       final collectIntervalMinutes = (config.collectionInterval / 60).round();
       final syncIntervalMinutes = (config.sendInterval / 60).round();
 
@@ -148,45 +180,51 @@ class _DashboardPageState extends State<DashboardPage>
         _currentConfig = config;
         _collectInterval = collectIntervalMinutes;
         _syncInterval = syncIntervalMinutes;
-        _nextCollection = DateTime.now().add(
-          Duration(minutes: _collectInterval),
-        );
-        _nextSync = DateTime.now().add(Duration(minutes: _syncInterval));
       });
+
+      // Mettre à jour les timers si les intervalles ont changé
+      if (_timersInitialized) {
+        _updateTimers();
+      }
 
       print(
-        '⚙️ Config loaded: $collectIntervalMinutes min collect, $syncIntervalMinutes min sync',
+        '⚙️ Configuration chargée: $_collectInterval min collecte, $_syncInterval min sync',
       );
     } catch (e) {
-      print('⚠️ Error loading config: $e - Using default intervals');
-      // Utiliser les valeurs par défaut
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt('collect_interval', 5);
-      await prefs.setInt('sync_interval', 10);
-
-      setState(() {
-        _collectInterval = 5;
-        _syncInterval = 10;
-      });
+      print('⚠️ Erreur chargement config: $e - Utilisation du cache');
     } finally {
       setState(() => _configLoading = false);
     }
   }
 
-  Future<void> _loadStats() async {
-    try {
-      final pendingData = await _storageService.getPendingGpsData();
-      final lastSync = await _storageService.getLastSyncTime();
+  void _updateTimers() {
+    _collectTimer?.cancel();
+    _syncTimer?.cancel();
 
-      setState(() {
-        _stats = {
-          'pending_count': pendingData.length,
-          'last_collection': lastSync,
-          'total_data': pendingData.length + _historyData.length,
-        };
-      });
+    _collectTimer = Timer.periodic(
+      Duration(minutes: _collectInterval),
+      (timer) => _performAutoCollect(),
+    );
+
+    _syncTimer = Timer.periodic(
+      Duration(minutes: _syncInterval),
+      (timer) => _performAutoSync(),
+    );
+
+    print('🔄 Timers mis à jour avec nouveaux intervalles');
+  }
+
+  Future<void> _startBackgroundManager() async {
+    try {
+      final backgroundManager = context.read<BackgroundManager>();
+      final authService = context.read<AuthService>();
+
+      if (authService.isAuthenticated) {
+        print('✅ Démarrage du background manager...');
+        await backgroundManager.start();
+      }
     } catch (e) {
-      print('❌ Error loading stats: $e');
+      print('⚠️ Erreur démarrage background manager: $e');
     }
   }
 
@@ -198,97 +236,81 @@ class _DashboardPageState extends State<DashboardPage>
     });
   }
 
+  Future<void> _loadStats() async {
+    try {
+      final pendingCount = await _databaseService.getPendingCount();
+      final syncedCount = await _databaseService.getSyncedCount();
+      final lastSync = await _storageService.getLastSyncTime();
+      final lastCollection = await _databaseService.getLastCollectionTime();
+
+      setState(() {
+        _stats = {
+          'pending_count': pendingCount,
+          'synced_count': syncedCount,
+          'last_sync': lastSync,
+          'last_collection': lastCollection,
+          'total_data': pendingCount + syncedCount,
+        };
+      });
+    } catch (e) {
+      print('❌ Erreur chargement stats: $e');
+    }
+  }
+
   Future<void> _loadPendingData() async {
     setState(() => _pendingLoading = true);
-    final data = await _storageService.getPendingGpsData();
+    final data = await _databaseService.getPendingGpsData();
     setState(() {
       _pendingData = data;
       _pendingLoading = false;
-      _stats['pending_count'] = data.length;
     });
   }
 
   Future<void> _loadHistoryData() async {
     setState(() => _historyLoading = true);
 
-    final pendingData = await _storageService.getPendingGpsData();
-    final syncedData = await _storageService.getSyncedGpsData();
-
-    // S'assurer que les données en attente ont synced: false
-    final pendingWithStatus =
-        pendingData.map((data) => data.copyWith(synced: false)).toList();
-
-    // S'assurer que les données synchronisées ont synced: true
-    final syncedWithStatus =
-        syncedData.map((data) => data.copyWith(synced: true)).toList();
-
-    // Combiner toutes les données et trier par datetime
-    final allData = [...pendingWithStatus, ...syncedWithStatus];
-    allData.sort((a, b) => b.datetime.compareTo(a.datetime));
-
+    // Charger toutes les données triées par date
+    final allData = await _databaseService.getAllGpsData();
     setState(() {
       _historyData = allData;
       _historyLoading = false;
     });
   }
 
-  @override
-  void dispose() {
-    _collectTimer?.cancel();
-    _syncTimer?.cancel();
-    _statsTimer?.cancel();
-    _prefsCheckTimer?.cancel();
-    _tabController.dispose();
+  Future<void> _loadAllData() async {
+    await Future.wait([_loadPendingData(), _loadHistoryData(), _loadStats()]);
+  }
 
-    // Arrêter le background manager
+  Future<void> _refreshData() async {
+    print('🔄 Rafraîchissement manuel des données');
     try {
-      _backgroundManager.stop();
-    } catch (e) {
-      print('⚠️ Error stopping background manager: $e');
-    }
+      await _loadAllData();
 
-    super.dispose();
-  }
-
-  void _startAutoCollect() {
-    _collectTimer?.cancel();
-    _collectTimer = Timer.periodic(Duration(minutes: _collectInterval), (
-      timer,
-    ) async {
-      await _performAutoCollect();
-      setState(() {
-        _nextCollection = DateTime.now().add(
-          Duration(minutes: _collectInterval),
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Données rafraîchies avec succès'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
         );
-      });
-      await _loadPendingData();
-      await _loadHistoryData();
-    });
+      }
+    } catch (e) {
+      print('❌ Erreur rafraîchissement données: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors du rafraîchissement: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
   }
 
-  void _startAutoSync() {
-    _syncTimer?.cancel();
-    _syncTimer = Timer.periodic(Duration(minutes: _syncInterval), (
-      timer,
-    ) async {
-      await _performAutoSync();
-      setState(() {
-        _nextSync = DateTime.now().add(Duration(minutes: _syncInterval));
-      });
-      await _loadPendingData();
-      await _loadHistoryData();
-    });
-  }
-
-  void _startStatsTimer() {
-    _statsTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      setState(() {});
-    });
-  }
-
-  // Nouvelle méthode pour vérifier les changements de préférences
   void _startPreferencesChecker() {
-    _prefsCheckTimer = Timer.periodic(const Duration(seconds: 2), (
+    _prefsCheckTimer = Timer.periodic(const Duration(seconds: 5), (
       timer,
     ) async {
       if (!mounted) return;
@@ -302,52 +324,177 @@ class _DashboardPageState extends State<DashboardPage>
         print(
           '🔄 Intervalles modifiés: $newCollectInterval min, $newSyncInterval min',
         );
-        await _restartTimersWithNewIntervals();
+
+        setState(() {
+          _collectInterval = newCollectInterval;
+          _syncInterval = newSyncInterval;
+        });
+
+        // Mettre à jour les timers
+        _collectTimer?.cancel();
+        _syncTimer?.cancel();
+
+        _collectTimer = Timer.periodic(
+          Duration(minutes: _collectInterval),
+          (timer) => _performAutoCollect(),
+        );
+
+        _syncTimer = Timer.periodic(
+          Duration(minutes: _syncInterval),
+          (timer) => _performAutoSync(),
+        );
+
+        // Mettre à jour le background manager
+        try {
+          final backgroundManager = context.read<BackgroundManager>();
+          await backgroundManager.updateIntervals();
+        } catch (e) {
+          print('⚠️ Erreur mise à jour intervals background: $e');
+        }
       }
-    });
-  }
-
-  Future<void> _restartTimersWithNewIntervals() async {
-    // D'abord charger les nouveaux intervalles depuis SharedPreferences
-    await _loadIntervals();
-
-    _collectTimer?.cancel();
-    _syncTimer?.cancel();
-
-    // Redémarrer les timers avec les nouveaux intervalles
-    _startAutoCollect();
-    _startAutoSync();
-
-    // Mettre à jour l'interface
-    setState(() {
-      _nextCollection = DateTime.now().add(Duration(minutes: _collectInterval));
-      _nextSync = DateTime.now().add(Duration(minutes: _syncInterval));
     });
   }
 
   Future<void> _performAutoCollect() async {
     try {
-      // Utilisation de la méthode automatique
-      await AutoCollectService.collectGpsDataBackground();
+      print('📍 Début collecte automatique...');
+
+      // Sauvegarder le temps actuel
+      _lastCollectionTime = DateTime.now().add(
+        Duration(minutes: _collectInterval),
+      );
+
+      // Utiliser AutoCollectService pour la collecte
+      await AutoCollectService.manualCollect();
+
+      // Recharger les données
+      await _loadPendingData();
       await _loadStats();
-      await _loadPendingData(); // Recharger les données en attente
-      await _loadHistoryData(); // Recharger l'historique
+
+      // Mettre à jour le prochain temps de collecte
+      setState(() {
+        _nextCollection = _lastCollectionTime;
+      });
+
+      print('✅ Collecte automatique terminée');
     } catch (e) {
-      print('❌ Auto collect error: $e');
+      print('❌ Erreur collecte automatique: $e');
     }
   }
 
   Future<void> _performAutoSync() async {
     try {
-      print('🔄 Starting auto sync...');
+      print('🔄 Début synchronisation automatique...');
+
+      // Sauvegarder le temps actuel
+      _lastSyncTime = DateTime.now().add(Duration(minutes: _syncInterval));
+
       await _syncService.syncPendingData();
 
-      // Recharger toutes les données
+      // Recharger les données
       await Future.wait([_loadStats(), _loadPendingData(), _loadHistoryData()]);
 
-      print('✅ Auto sync completed');
+      // Mettre à jour le prochain temps de synchronisation
+      setState(() {
+        _nextSync = _lastSyncTime;
+      });
+
+      print('✅ Synchronisation automatique terminée');
     } catch (e) {
-      print('❌ Auto sync error: $e');
+      print('❌ Erreur synchronisation automatique: $e');
+    }
+  }
+
+  Future<void> _clearAllData() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Effacer toutes les données'),
+            content: const Text(
+              'Êtes-vous sûr de vouloir effacer toutes les données GPS locales ? '
+              'Cette action est irréversible.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Annuler'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text(
+                  'Effacer',
+                  style: TextStyle(color: Colors.red),
+                ),
+              ),
+            ],
+          ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await _databaseService.clearAllData();
+        await _loadAllData();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Toutes les données GPS ont été effacées'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Erreur lors de l\'effacement: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _logout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Déconnexion'),
+            content: const Text('Êtes-vous sûr de vouloir vous déconnecter ?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Annuler'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text(
+                  'Déconnexion',
+                  style: TextStyle(color: Colors.red),
+                ),
+              ),
+            ],
+          ),
+    );
+
+    if (confirmed == true) {
+      try {
+        // Arrêter le background manager
+        final backgroundManager = context.read<BackgroundManager>();
+        await backgroundManager.stop();
+
+        // Déconnexion
+        final authService = context.read<AuthService>();
+        await authService.logout();
+
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/login');
+        }
+      } catch (e) {
+        print('❌ Erreur lors de la déconnexion: $e');
+      }
     }
   }
 
@@ -362,21 +509,28 @@ class _DashboardPageState extends State<DashboardPage>
   }
 
   @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+
+    _collectTimer?.cancel();
+    _syncTimer?.cancel();
+    _statsTimer?.cancel();
+    _prefsCheckTimer?.cancel();
+    _tabController.dispose();
+
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       floatingActionButton: FloatingActionButton(
         onPressed: () async {
-          await Future.wait([
-            _loadPendingData(),
-            _loadHistoryData(),
-            _loadStats(),
-          ]);
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('Données rafraîchies')));
+          await _refreshData();
         },
         backgroundColor: Colors.green[700],
         child: const Icon(Icons.refresh),
+        tooltip: 'Rafraîchir les données',
       ),
       appBar: AppBar(
         title: const Text(
@@ -387,6 +541,51 @@ class _DashboardPageState extends State<DashboardPage>
         foregroundColor: Colors.white,
         elevation: 2,
         actions: [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, color: Colors.white),
+            onSelected: (value) {
+              if (value == 'clear_data') {
+                _clearAllData();
+              } else if (value == 'force_sync') {
+                _performAutoSync();
+              } else if (value == 'logout') {
+                _logout();
+              }
+            },
+            itemBuilder:
+                (BuildContext context) => [
+                  const PopupMenuItem<String>(
+                    value: 'force_sync',
+                    child: Row(
+                      children: [
+                        Icon(Icons.sync, color: Colors.blue),
+                        SizedBox(width: 8),
+                        Text('Forcer synchronisation'),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem<String>(
+                    value: 'clear_data',
+                    child: Row(
+                      children: [
+                        Icon(Icons.delete, color: Colors.red),
+                        SizedBox(width: 8),
+                        Text('Effacer données locales'),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem<String>(
+                    value: 'logout',
+                    child: Row(
+                      children: [
+                        Icon(Icons.logout, color: Colors.orange),
+                        SizedBox(width: 8),
+                        Text('Déconnexion'),
+                      ],
+                    ),
+                  ),
+                ],
+          ),
           IconButton(
             icon: const Icon(Icons.settings, color: Colors.white),
             onPressed: () async {
@@ -396,14 +595,10 @@ class _DashboardPageState extends State<DashboardPage>
               );
 
               if (needsRefresh == true && mounted) {
-                await _restartTimersWithNewIntervals();
-                await Future.wait([
-                  _loadPendingData(),
-                  _loadHistoryData(),
-                  _loadStats(),
-                ]);
+                await _refreshData();
               }
             },
+            tooltip: 'Paramètres',
           ),
         ],
         bottom: TabBar(
@@ -421,7 +616,21 @@ class _DashboardPageState extends State<DashboardPage>
         color: Colors.white,
         child: TabBarView(
           controller: _tabController,
-          children: [_buildDashboardTab(), _buildHistoryTab()],
+          children: [
+            RefreshIndicator(
+              key: _refreshIndicatorKey,
+              onRefresh: _refreshData,
+              color: Colors.green,
+              backgroundColor: Colors.white,
+              child: _buildDashboardTab(),
+            ),
+            RefreshIndicator(
+              onRefresh: _refreshData,
+              color: Colors.green,
+              backgroundColor: Colors.white,
+              child: _buildHistoryTab(),
+            ),
+          ],
         ),
       ),
     );
@@ -429,6 +638,7 @@ class _DashboardPageState extends State<DashboardPage>
 
   Widget _buildDashboardTab() {
     return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -446,8 +656,41 @@ class _DashboardPageState extends State<DashboardPage>
               ? const Center(child: CircularProgressIndicator())
               : _buildPendingDataList(),
           const SizedBox(height: 16),
-          // SUPPRIMÉ: Les boutons "Collecter maintenant" et "Synchroniser"
-          // La collecte et synchronisation sont maintenant entièrement automatiques
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.blue[50],
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.blue[100]!),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info, color: Colors.blue[700]),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '💡 Pour rafraîchir :',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue[700],
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '• Glisser vers le bas\n'
+                        '• Appuyer sur le bouton 🔄\n'
+                        '• Appuyer sur le FAB',
+                        style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -455,93 +698,69 @@ class _DashboardPageState extends State<DashboardPage>
 
   Widget _buildPendingDataList() {
     if (_pendingData.isEmpty) {
-      return RefreshIndicator(
-        onRefresh: () async {
-          await _loadPendingData();
-          await _loadHistoryData();
-        },
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.grey[50],
-              borderRadius: BorderRadius.circular(12),
+      return Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.grey[50],
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Column(
+          children: [
+            Icon(Icons.check_circle, color: Colors.green, size: 48),
+            SizedBox(height: 8),
+            Text(
+              'Toutes les données sont synchronisées',
+              style: TextStyle(fontSize: 16, color: Colors.grey),
+              textAlign: TextAlign.center,
             ),
-            child: const Column(
-              children: [
-                Icon(Icons.check_circle, color: Colors.green, size: 48),
-                SizedBox(height: 8),
-                Text(
-                  'Toutes les données sont synchronisées',
-                  style: TextStyle(fontSize: 16, color: Colors.grey),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          ),
+          ],
         ),
       );
     }
 
-    return RefreshIndicator(
-      onRefresh: () async {
-        await _loadPendingData();
-        await _loadHistoryData();
-      },
-      child: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        child: Card(
-          elevation: 2,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        children: [
+          ListTile(
+            leading: const Icon(Icons.pending_actions, color: Colors.orange),
+            title: const Text('Données en attente'),
+            trailing: Chip(
+              label: Text('${_pendingData.length}'),
+              backgroundColor: Colors.orange.withOpacity(0.2),
+            ),
           ),
-          child: Column(
-            children: [
-              ListTile(
-                leading: const Icon(
-                  Icons.pending_actions,
-                  color: Colors.orange,
-                ),
-                title: const Text('Données en attente'),
-                trailing: Chip(
-                  label: Text('${_pendingData.length}'),
-                  backgroundColor: Colors.orange.withOpacity(0.2),
-                ),
-              ),
-              const Divider(height: 1),
-              SizedBox(
-                height: 200,
-                child: ListView.builder(
-                  itemCount: _pendingData.length,
-                  itemBuilder: (context, index) {
-                    final data = _pendingData[index];
-                    return ListTile(
-                      leading: const Icon(Icons.location_on, size: 20),
-                      title: Text(
-                        '${data.latitude.toStringAsFixed(6)}, ${data.longitude.toStringAsFixed(6)}',
-                        style: const TextStyle(fontSize: 14),
-                      ),
-                      subtitle: Text(
-                        DateFormat('dd/MM HH:mm').format(data.datetime),
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                      trailing: Icon(
-                        data.synced ?? false
-                            ? Icons.check_circle
-                            : Icons.access_time,
-                        color:
-                            data.synced ?? false ? Colors.green : Colors.orange,
-                        size: 20,
-                      ),
-                      dense: true,
-                    );
-                  },
-                ),
-              ),
-            ],
+          const Divider(height: 1),
+          SizedBox(
+            height: 200,
+            child: ListView.builder(
+              itemCount: _pendingData.length,
+              itemBuilder: (context, index) {
+                final data = _pendingData[index];
+                return ListTile(
+                  leading: const Icon(Icons.location_on, size: 20),
+                  title: Text(
+                    '${data.latitude.toStringAsFixed(6)}, ${data.longitude.toStringAsFixed(6)}',
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                  subtitle: Text(
+                    DateFormat('dd/MM HH:mm').format(data.datetime),
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  trailing: Icon(
+                    data.synced ?? false
+                        ? Icons.check_circle
+                        : Icons.access_time,
+                    color: data.synced ?? false ? Colors.green : Colors.orange,
+                    size: 20,
+                  ),
+                  dense: true,
+                );
+              },
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -554,48 +773,42 @@ class _DashboardPageState extends State<DashboardPage>
       return const Center(child: Text('Aucune donnée historique disponible'));
     }
 
-    return RefreshIndicator(
-      onRefresh: () async {
-        await _loadPendingData();
-        await _loadHistoryData();
-      },
-      child: ListView.separated(
-        padding: const EdgeInsets.all(16),
-        itemCount: _historyData.length,
-        separatorBuilder: (context, index) => const SizedBox(height: 8),
-        itemBuilder: (context, index) {
-          final data = _historyData[index];
-          final isSynced = data.synced ?? false;
+    return ListView.separated(
+      padding: const EdgeInsets.all(16),
+      itemCount: _historyData.length,
+      separatorBuilder: (context, index) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        final data = _historyData[index];
+        final isSynced = data.synced ?? false;
 
-          return Card(
-            elevation: 1,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
+        return Card(
+          elevation: 1,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: ListTile(
+            leading: Icon(
+              isSynced ? Icons.check_circle : Icons.location_on,
+              color: isSynced ? Colors.green : Colors.blue,
             ),
-            child: ListTile(
-              leading: Icon(
-                isSynced ? Icons.check_circle : Icons.location_on,
-                color: isSynced ? Colors.green : Colors.blue,
-              ),
-              title: Text(
-                '${data.latitude.toStringAsFixed(6)}, ${data.longitude.toStringAsFixed(6)}',
-                style: const TextStyle(fontWeight: FontWeight.w500),
-              ),
-              subtitle: Text(
-                DateFormat('dd/MM/yyyy HH:mm').format(data.datetime),
-                style: const TextStyle(fontSize: 13),
-              ),
-              trailing: Text(
-                isSynced ? 'Synchronisé' : 'En attente',
-                style: TextStyle(
-                  color: isSynced ? Colors.green : Colors.orange,
-                  fontWeight: FontWeight.bold,
-                ),
+            title: Text(
+              '${data.latitude.toStringAsFixed(6)}, ${data.longitude.toStringAsFixed(6)}',
+              style: const TextStyle(fontWeight: FontWeight.w500),
+            ),
+            subtitle: Text(
+              DateFormat('dd/MM/yyyy HH:mm').format(data.datetime),
+              style: const TextStyle(fontSize: 13),
+            ),
+            trailing: Text(
+              isSynced ? 'Synchronisé' : 'En attente',
+              style: TextStyle(
+                color: isSynced ? Colors.green : Colors.orange,
+                fontWeight: FontWeight.bold,
               ),
             ),
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -646,7 +859,6 @@ class _DashboardPageState extends State<DashboardPage>
                   ],
                 ),
                 const SizedBox(height: 16),
-                // Section d'information sur l'automatisation
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(

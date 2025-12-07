@@ -5,6 +5,7 @@ import 'package:geotrack_frontend/services/storage_service.dart';
 import 'package:geotrack_frontend/services/auto_collect_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:geotrack_frontend/services/api_service.dart';
 
 class BackgroundManager {
   static final BackgroundManager _instance = BackgroundManager._internal();
@@ -15,99 +16,119 @@ class BackgroundManager {
   Timer? _syncTimer;
   bool _isRunning = false;
 
+  Future<bool> _checkAuthentication() async {
+    try {
+      final storageService = StorageService();
+      final token = await storageService.getToken();
+
+      if (token == null || token.isEmpty) {
+        print('⚠️ Background: Utilisateur non authentifié');
+        return false;
+      }
+
+      // Vérifier la validité du token en faisant une requête simple
+      final apiService = ApiService();
+      await apiService.getConfig();
+      return true;
+    } catch (e) {
+      print('❌ Background: Authentication check failed: $e');
+      return false;
+    }
+  }
+
   Future<void> start() async {
     if (_isRunning) {
-      print('⚠️ Background manager already running');
+      print('⚠️ Background manager déjà en cours d\'exécution');
       return;
     }
 
-    if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
+    if (!kIsWeb) {
       try {
-        print('🚀 Starting background manager...');
+        print('🚀 Démarrage du background manager...');
 
         // Vérifier l'authentification
-        final storageService = StorageService();
-        final token = await storageService.getToken();
-
-        if (token == null || token.isEmpty) {
-          print('⚠️ Cannot start background manager: user not authenticated');
+        final isAuthenticated = await _checkAuthentication();
+        if (!isAuthenticated) {
+          print('⚠️ Impossible de démarrer: utilisateur non authentifié');
           return;
         }
 
-        // Charger les intervalles
         final prefs = await SharedPreferences.getInstance();
         final collectInterval = prefs.getInt('collect_interval') ?? 5;
         final syncInterval = prefs.getInt('sync_interval') ?? 10;
 
         print(
-          '⏰ Background intervals - Collect: ${collectInterval}min, Sync: ${syncInterval}min',
+          '⏰ Intervalles - Collecte: ${collectInterval}min, Sync: ${syncInterval}min',
         );
 
-        // Démarrer la collecte périodique
+        // Annuler les timers existants
+        _collectTimer?.cancel();
+        _syncTimer?.cancel();
+
+        // Démarrer les timers
         _collectTimer = Timer.periodic(
           Duration(minutes: collectInterval),
           (timer) => _collectData(),
         );
 
-        // Démarrer la synchronisation périodique
         _syncTimer = Timer.periodic(
           Duration(minutes: syncInterval),
           (timer) => _syncData(),
         );
 
         _isRunning = true;
-        print('✅ Background manager started successfully');
+        print('✅ Background manager démarré avec succès');
 
-        // Première collecte immédiate
+        // Exécuter immédiatement une première collecte et synchronisation
         await _collectData();
         await _syncData();
       } catch (e) {
-        print('❌ Error starting background manager: $e');
+        print('❌ Erreur de démarrage du background manager: $e');
       }
     }
   }
 
   Future<void> _collectData() async {
     try {
-      print('📍 Background: Collecting GPS data...');
+      print('📍 Background: Collecte de données GPS...');
 
-      // Vérifier les permissions
       final hasPermission = await _checkLocationPermission();
       if (!hasPermission) {
-        print('⚠️ Location permission not granted for background collection');
+        print(
+          '⚠️ Permission de localisation non accordée pour la collecte en arrière-plan',
+        );
+        return;
+      }
+
+      // Vérifier l'authentification avant chaque collecte
+      final isAuthenticated = await _checkAuthentication();
+      if (!isAuthenticated) {
+        print('⚠️ Collecte annulée: utilisateur non authentifié');
         return;
       }
 
       await AutoCollectService.manualCollect();
-      print('✅ Background collection completed');
+      print('✅ Collecte en arrière-plan terminée');
     } catch (e) {
-      print('❌ Background collection error: $e');
+      print('❌ Erreur de collecte en arrière-plan: $e');
     }
   }
 
   Future<void> _syncData() async {
     try {
-      print('🔄 Background: Syncing data...');
+      print('🔄 Background: Synchronisation des données...');
 
-      // Vérifier la connexion internet
-      final hasConnection = await _checkInternetConnection();
-      if (!hasConnection) {
-        print('⚠️ No internet connection for background sync');
-        return;
-      }
-
-      // Vérifier l'authentification
-      final storageService = StorageService();
-      final token = await storageService.getToken();
-      if (token == null || token.isEmpty) {
-        print('⚠️ Cannot sync: user not authenticated');
+      // Vérifier l'authentification avant chaque synchronisation
+      final isAuthenticated = await _checkAuthentication();
+      if (!isAuthenticated) {
+        print('⚠️ Synchronisation annulée: utilisateur non authentifié');
         return;
       }
 
       await AutoCollectService.manualSync();
-      print('✅ Background sync completed');
+      print('✅ Synchronisation en arrière-plan terminée');
     } catch (e) {
-      print('❌ Background sync error: $e');
+      print('❌ Erreur de synchronisation en arrière-plan: $e');
     }
   }
 
@@ -126,23 +147,13 @@ class BackgroundManager {
       return permission == LocationPermission.always ||
           permission == LocationPermission.whileInUse;
     } catch (e) {
-      print('❌ Error checking location permission: $e');
-      return false;
-    }
-  }
-
-  Future<bool> _checkInternetConnection() async {
-    try {
-      // Simple check - vous pouvez utiliser connectivity_plus si nécessaire
-      // Pour l'instant, retourne true pour éviter les complications
-      return true;
-    } catch (e) {
+      print('❌ Erreur vérification permission localisation: $e');
       return false;
     }
   }
 
   Future<void> stop() async {
-    print('🛑 Stopping background manager...');
+    print('🛑 Arrêt du background manager...');
 
     _collectTimer?.cancel();
     _syncTimer?.cancel();
@@ -150,7 +161,17 @@ class BackgroundManager {
     _syncTimer = null;
     _isRunning = false;
 
-    print('✅ Background manager stopped');
+    print('✅ Background manager arrêté');
+  }
+
+  // Méthode pour mettre à jour les intervalles
+  Future<void> updateIntervals() async {
+    if (_isRunning) {
+      print('🔄 Mise à jour des intervalles du background manager...');
+      await stop();
+      await Future.delayed(const Duration(seconds: 1));
+      await start();
+    }
   }
 
   bool get isRunning => _isRunning;
