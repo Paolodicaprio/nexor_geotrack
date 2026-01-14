@@ -47,6 +47,17 @@ class SyncLog(Base):
     error_message = Column(Text, nullable=True)
     
    
+class DeviceHeartbeat(Base):
+    __tablename__ = "device_heartbeats"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    device_id = Column(String, index=True, nullable=False)
+    service_status = Column(String, default="running")
+    last_heartbeat = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
 class Config(Base):
     __tablename__ = "configs"
     

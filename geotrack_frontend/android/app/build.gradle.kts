@@ -45,6 +45,9 @@ dependencies {
 
     // ✅ Ajout de la lib de desugaring
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
+    
+    // WorkManager for periodic service health checks
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
 }
 flutter {
     source = "../.."

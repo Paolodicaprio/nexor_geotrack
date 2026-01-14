@@ -214,4 +214,42 @@ class ApiService {
       rethrow;
     }
   }
+
+  /// Send a heartbeat ping to the server to indicate device is online
+  Future<bool> sendHeartbeat() async {
+    try {
+      final apiUrl = await getApiUrl();
+      final headers = await _getHeaders();
+      final deviceCode = await StorageService().getDeviceCode();
+      
+      if (deviceCode == null || deviceCode.isEmpty) {
+        print('⚠️ No device code set, skipping heartbeat');
+        return false;
+      }
+
+      final body = {
+        "device_id": deviceCode,
+        "timestamp": DateTime.now().toIso8601String(),
+        "service_status": "running",
+      };
+
+      final response = await SafeHttp.request(
+        () => http.post(
+          Uri.parse('$apiUrl/heartbeat/'),
+          headers: headers,
+          body: json.encode(body),
+        ).timeout(const Duration(seconds: 10)),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return true;
+      } else {
+        print('⚠️ Heartbeat failed: ${response.statusCode}');
+        return false;
+      }
+    } catch (e) {
+      print('❌ Heartbeat error: $e');
+      return false;
+    }
+  }
 }

@@ -1,8 +1,10 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:geotrack_frontend/models/config_model.dart';
 import 'package:geotrack_frontend/services/api_service.dart';
 import 'package:geotrack_frontend/services/storage_service.dart';
+import 'package:geotrack_frontend/services/power_optimizations.dart';
 import 'package:provider/provider.dart';
 import 'package:geotrack_frontend/services/auth_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -29,6 +31,8 @@ class _SettingsPageState extends State<SettingsPage> {
 
   bool _showApiSection = false;
   bool _configLoading = false;
+  bool _isBatteryOptimized = true;
+  bool _checkingBattery = false;
 
   @override
   void initState() {
@@ -36,6 +40,30 @@ class _SettingsPageState extends State<SettingsPage> {
     StorageService().reloadStorage();
     _loadSettings();
     _loadApiSettings();
+    _checkBatteryOptimization();
+  }
+
+  Future<void> _checkBatteryOptimization() async {
+    if (!Platform.isAndroid) return;
+    
+    setState(() => _checkingBattery = true);
+    try {
+      final isIgnoring = await PowerOptimizationsService.isIgnoringBatteryOptimizations();
+      setState(() => _isBatteryOptimized = !isIgnoring);
+    } catch (e) {
+      debugPrint('Error checking battery optimization: $e');
+    } finally {
+      setState(() => _checkingBattery = false);
+    }
+  }
+
+  Future<void> _requestBatteryOptimizationExemption() async {
+    final success = await PowerOptimizationsService.requestIgnoreBatteryOptimizations();
+    if (success) {
+      // Give system time to process, then recheck
+      await Future.delayed(const Duration(seconds: 2));
+      await _checkBatteryOptimization();
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -391,6 +419,86 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
             const SizedBox(height: 24),
+
+            // Battery Optimization Section (Android only)
+            if (Platform.isAndroid)
+              Card(
+                elevation: 2,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            _isBatteryOptimized ? Icons.battery_alert : Icons.battery_full,
+                            color: _isBatteryOptimized ? Colors.orange : Colors.green,
+                          ),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Text(
+                              'Battery Optimization',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          if (_checkingBattery)
+                            const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        _isBatteryOptimized
+                            ? 'Battery optimization is enabled. This may stop GPS collection when the app is in the background.'
+                            : 'Battery optimization is disabled. GPS collection will work reliably in background.',
+                        style: TextStyle(
+                          color: _isBatteryOptimized ? Colors.orange[800] : Colors.green[800],
+                          fontSize: 13,
+                        ),
+                      ),
+                      if (_isBatteryOptimized) ...[
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            icon: const Icon(Icons.settings),
+                            label: const Text('Disable Battery Optimization'),
+                            onPressed: _requestBatteryOptimizationExemption,
+                            style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              backgroundColor: Colors.orange,
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ] else ...[
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            const Icon(Icons.check_circle, color: Colors.green, size: 18),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Optimal configuration for GPS tracking',
+                              style: TextStyle(color: Colors.green[700], fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            if (Platform.isAndroid) const SizedBox(height: 24),
 
             // Bouton de déconnexion
             SizedBox(

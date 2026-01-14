@@ -4,6 +4,7 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -24,6 +25,24 @@
             android:name="id.flutter.flutter_background_service.BackgroundService"
             android:foregroundServiceType="location"
             />
+        
+        <!-- Boot start service for foreground notification and app restart -->
+        <service
+            android:name="com.nexor.geotrack.BootStartService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+        
+        <!-- Boot receiver to restart service after device reboot or app update -->
+        <receiver
+            android:name="com.nexor.geotrack.BootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
         
         <activity
             android:name=".MainActivity"

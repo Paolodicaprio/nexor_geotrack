@@ -49,6 +49,9 @@ class AutoCollectService {
         await service._syncService.syncPendingData();
         print('✅ Synchronisation réussie: $pendingCount données');
       }
+      
+      // Send heartbeat after sync
+      await _sendHeartbeat();
     } catch (e) {
       print('❌ Erreur synchronisation: $e');
       /* dans le cas d'une reconnexion , la fonction est appelé avec retry= true
@@ -84,6 +87,17 @@ class AutoCollectService {
       'next_collection': DateTime.now().add(const Duration(minutes: 5)),
       'next_sync': DateTime.now().add(const Duration(minutes: 10)),
     };
+  }
+
+  static Future<void> _sendHeartbeat() async {
+    try {
+      final success = await ApiService().sendHeartbeat();
+      if (success) {
+        print('💓 Heartbeat envoyé au serveur');
+      }
+    } catch (e) {
+      print('⚠️ Heartbeat error (non-blocking): $e');
+    }
   }
 
   static Future<void> refetchConfig({bool retry = false})async{

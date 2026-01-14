@@ -29,6 +29,7 @@ Future<void> main() async {
       androidConfiguration: AndroidConfiguration(
         onStart: onStart,
         autoStart: false,
+        autoStartOnBoot: true,
         isForegroundMode: true,
         notificationChannelId: NotificationService.CHANNEL_ID,
         initialNotificationTitle: 'GeoTrack Service',

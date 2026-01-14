@@ -10,7 +10,7 @@ load_dotenv()
 
 from app.database import engine, get_db
 from app.models import Base
-from app.routes import auth, config, data
+from app.routes import auth, config, data, heartbeat
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -34,6 +34,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/auth", tags=["authentication"])
 app.include_router(config.router, prefix="/config", tags=["configuration"])
 app.include_router(data.router, prefix="/data", tags=["gps-data"])
+app.include_router(heartbeat.router, prefix="/heartbeat", tags=["device-monitoring"])
 
 @app.get("/")
 async def root():
