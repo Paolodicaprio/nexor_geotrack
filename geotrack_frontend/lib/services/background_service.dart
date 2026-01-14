@@ -220,24 +220,26 @@ class BackgroundTaskManager {
 }
 final BackgroundTaskManager taskManager = BackgroundTaskManager();
 
-Future<void> initializeBackgroundService(bool withSyncTaks) async {
+Future<void> initializeBackgroundService(bool withSyncTasks) async {
   final service = FlutterBackgroundService();
 
-  if(await service.isRunning()){
+  if (await service.isRunning()) {
     print("BG Service configure: already running.------------------");
     service.invoke("restart_tasks");
-
-  }else{
+  } else {
     bool started = await service.startService();
-    if (started){
+    if (started) {
       print("BG Service configure: service started.------------------");
-      if(withSyncTaks){
-        service.invoke("start_all_tasks");
-      }else{
-        await Future.delayed(Duration(seconds: 2));
-          service.invoke("start_collect_task");
+      // Always start GPS collection task regardless of auth state
+      await Future.delayed(Duration(seconds: 2));
+      service.invoke("start_collect_task");
+      
+      // Only start sync tasks if authenticated
+      if (withSyncTasks) {
+        service.invoke("start_sync_task");
+        service.invoke("start_config_sync_task");
       }
-    }else{
+    } else {
       print("BG Service configure: service not started.------------------");
     }
   }

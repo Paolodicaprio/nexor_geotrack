@@ -1,4 +1,4 @@
-package com.example.geotrack_frontend
+package com.nexor.geotrack
 
 import android.content.Context
 import android.content.Intent

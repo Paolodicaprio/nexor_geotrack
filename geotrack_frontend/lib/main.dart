@@ -28,7 +28,7 @@ Future<void> main() async {
     await service.configure(
       androidConfiguration: AndroidConfiguration(
         onStart: onStart,
-        autoStart: false,
+        autoStart: true,
         autoStartOnBoot: true,
         isForegroundMode: true,
         notificationChannelId: NotificationService.CHANNEL_ID,

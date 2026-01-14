@@ -24,7 +24,7 @@ class BootStartService : Service() {
         private const val NOTIFICATION_ID = 999
         // Allow 10 seconds for Flutter to initialize and start background service
         private const val FLUTTER_INIT_DELAY_MS = 10000L
-        private const val MAIN_ACTIVITY_CLASS = "com.example.geotrack_frontend.MainActivity"
+        private const val MAIN_ACTIVITY_CLASS = "com.nexor.geotrack.MainActivity"
     }
 
     override fun onCreate() {
