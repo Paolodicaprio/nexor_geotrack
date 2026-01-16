@@ -43,6 +43,12 @@ class BackgroundTaskManager {
 
   // Collecte GPS
   Future<void> startGpsCollectTask(ServiceInstance service) async {
+    // Skip if already running
+    if (_gpsCollectionTimer != null && _gpsCollectionTimer!.isActive) {
+      print("⚠️ GPS collection task already running - skipping");
+      return;
+    }
+    
     final storage = StorageService();
     final config = await storage.getConfig();
     final duration = Duration(seconds: config.collectionInterval);
@@ -77,6 +83,12 @@ class BackgroundTaskManager {
 
   // Synchronisation des données GPS
   Future<void> startSyncTask(ServiceInstance service) async {
+    // Skip if already running
+    if (_syncTimer != null && _syncTimer!.isActive) {
+      print("⚠️ Sync task already running - skipping");
+      return;
+    }
+    
     final config = await StorageService().getConfig();
     final duration = Duration(seconds: config.sendInterval);
     _syncTimer?.cancel();
@@ -120,6 +132,12 @@ class BackgroundTaskManager {
 
   // Synchronisation de la configuration
   Future<void> startConfigSyncTask(ServiceInstance service) async {
+    // Skip if already running
+    if (_configSyncTimer != null && _configSyncTimer!.isActive) {
+      print("⚠️ Config sync task already running - skipping");
+      return;
+    }
+    
     final config = await StorageService().getConfig();
     final duration = Duration(minutes: config.configSyncInterval);
     _configSyncTimer?.cancel();
@@ -225,20 +243,25 @@ Future<void> initializeBackgroundService(bool withSyncTasks) async {
 
   if (await service.isRunning()) {
     print("BG Service configure: already running.------------------");
-    service.invoke("restart_tasks");
+    // Service already running (likely from boot auto-start)
+    // Just request current state to update UI
+    service.invoke("get_next_execution_times");
+    service.invoke("get_dashboard_infos");
+    
+    // If user just logged in and sync tasks weren't running, start them now
+    if (withSyncTasks) {
+      service.invoke("start_sync_task");
+      service.invoke("start_config_sync_task");
+    }
   } else {
     bool started = await service.startService();
     if (started) {
       print("BG Service configure: service started.------------------");
-      // Always start GPS collection task regardless of auth state
-      await Future.delayed(Duration(seconds: 2));
-      service.invoke("start_collect_task");
-      
-      // Only start sync tasks if authenticated
-      if (withSyncTasks) {
-        service.invoke("start_sync_task");
-        service.invoke("start_config_sync_task");
-      }
+      // Tasks will auto-start in onStart via _autoStartTasksOnBoot
+      // Just wait and update UI
+      await Future.delayed(Duration(seconds: 4));
+      service.invoke("get_next_execution_times");
+      service.invoke("get_dashboard_infos");
     } else {
       print("BG Service configure: service not started.------------------");
     }
@@ -328,4 +351,40 @@ void onStart(ServiceInstance service) async {
   service.on('config_changed').listen((event)async{
     await taskManager.restartWithConfig(service);
   });
+
+  // AUTO-START TASKS ON BOOT/RESTART
+  // Check if user was previously authenticated and auto-start tasks
+  await _autoStartTasksOnBoot(service);
+}
+
+/// Auto-start tasks when service starts (e.g., after device boot)
+/// If user was previously authenticated (has stored token), start all tasks including sync
+/// Otherwise, only start GPS collection
+Future<void> _autoStartTasksOnBoot(ServiceInstance service) async {
+  print("🚀 Auto-starting tasks on boot...");
+  
+  try {
+    final storage = StorageService();
+    final token = await storage.getToken();
+    final hasStoredCredentials = token != null && token.isNotEmpty;
+    
+    // Small delay to ensure service is fully initialized
+    await Future.delayed(Duration(seconds: 2));
+    
+    // Always start GPS collection
+    await taskManager.startGpsCollectTask(service);
+    print("✅ GPS collection task auto-started");
+    
+    // Start sync tasks only if user was previously authenticated
+    if (hasStoredCredentials) {
+      print("🔐 Found stored credentials - starting sync tasks");
+      await taskManager.startSyncTask(service);
+      await taskManager.startConfigSyncTask(service);
+      print("✅ Sync and config sync tasks auto-started");
+    } else {
+      print("⚠️ No stored credentials - sync tasks will start after login");
+    }
+  } catch (e) {
+    print("❌ Error auto-starting tasks: $e");
+  }
 }
