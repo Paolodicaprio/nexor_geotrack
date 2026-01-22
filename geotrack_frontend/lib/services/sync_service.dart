@@ -16,15 +16,23 @@ class SyncService {
   Future<void> syncPendingData() async {
     try {
       final pendingData = await _storageService.getPendingGpsData();
-      final token = await _storageService.getToken();
-      if (token == null) {
-        print('❌ No auth token available for sync');
-        return;
-      }
-
       if (pendingData.isEmpty) {
         print('✅ No pending data to sync');
         return;
+      }
+      
+      final token = await _storageService.getToken();
+      final username = await _storageService.getUserUsername();
+      final password = await _storageService.getPassword();
+      
+      // Don't attempt sync without valid auth
+      if (token == null || token.isEmpty) {
+        if (username == null || password == null) {
+          print('❌ No auth credentials available for sync');
+          throw CustomHttpException('No valid authentication', statusCode: 401);
+        }
+        // Let the caller handle reconnection
+        throw CustomHttpException('Token expired', statusCode: 401);
       }
 
       final List<Map<String, dynamic>> jsonList = pendingData

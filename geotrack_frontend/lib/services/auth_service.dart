@@ -221,6 +221,20 @@ class AuthService with ChangeNotifier {
   static Future<LoginResponse> tryReconnectUser()async{
     final storage = StorageService();
     try {
+      // Check credentials exist before attempting reconnection
+      final username = await storage.getUserUsername();
+      final password = await storage.getPassword();
+      
+      if (username == null || username.isEmpty || 
+          password == null || password.isEmpty) {
+        print('❌ Cannot reconnect: Missing credentials (username: ${username != null ? "exists" : "null"}, password: ${password != null ? "exists" : "null"})');
+        return LoginResponse(
+          success: false,
+          statusCode: 401,
+          error: 'Missing credentials for reconnection',
+        );
+      }
+      
       final apiUrl = await storage.getCustomUrl();
 
       // Test de connectivité
@@ -240,8 +254,8 @@ class AuthService with ChangeNotifier {
         "jsonrpc": "2.0",
         "params": {
           "db": await storage.getDatabaseName(),
-          "login": await storage.getUserUsername(),
-          "password": await storage.getPassword()
+          "login": username,
+          "password": password
         }
       };
 

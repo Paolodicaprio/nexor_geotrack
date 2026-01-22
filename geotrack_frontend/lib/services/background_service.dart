@@ -39,6 +39,35 @@ class BackgroundTaskManager {
         'nextConfigSyncTime': _nextConfigSyncTime?.toIso8601String(),
       },
     );
+    
+    // Persist timer states whenever they're updated
+    _persistTimerStates();
+  }
+  
+  // Save timer states to persistent storage
+  Future<void> _persistTimerStates() async {
+    await StorageService().saveTimerStates(
+      nextGpsTime: _nextGpsCollectionTime,
+      nextSyncTime: _nextSyncTime,
+      nextConfigTime: _nextConfigSyncTime,
+    );
+  }
+  
+  // Restore timer states from persistent storage
+  Future<void> _restoreTimerStates() async {
+    final states = await StorageService().getTimerStates();
+    final now = DateTime.now();
+    
+    // Only restore if timers are in the future
+    if (states['gps'] != null && states['gps']!.isAfter(now)) {
+      _nextGpsCollectionTime = states['gps'];
+    }
+    if (states['sync'] != null && states['sync']!.isAfter(now)) {
+      _nextSyncTime = states['sync'];
+    }
+    if (states['config'] != null && states['config']!.isAfter(now)) {
+      _nextConfigSyncTime = states['config'];
+    }
   }
 
   // Collecte GPS
@@ -98,34 +127,51 @@ class BackgroundTaskManager {
 
     _syncTimer = Timer.periodic(duration, (timer) async {
       if(_isSyncedTaskRunning){
+        return; // Skip this cycle
+      }
+      
+      _isSyncedTaskRunning = true;
+      
+      try {
+        await AutoCollectService.syncGpsDataBackground();
+        
+        // Update only on success
         _nextSyncTime = DateTime.now().add(duration);
         _sendTimersToUI(service);
-        return;
-      }
-      _isSyncedTaskRunning=true;
-      try{
-        await AutoCollectService.syncGpsDataBackground();
-      }catch(e){
-        print("errror happened : $e");
-        //print l'instance de e
-        print(e);
-        // on essaie de se reconnecter si c'est une erreur 401
-        if (e is CustomHttpException && e.statusCode == 401){
+        _updateDashboardInfos(service);
+        
+      } catch(e) {
+        print("Error happened: $e");
+        
+        if (e is CustomHttpException && e.statusCode == 401) {
           final loginResponse = await AuthService.tryReconnectUser();
-          if(loginResponse.success){
-            await AutoCollectService.syncGpsDataBackground(retry: true);
+          if(loginResponse.success) {
+            try {
+              await AutoCollectService.syncGpsDataBackground(retry: true);
+              // Update on retry success
+              _nextSyncTime = DateTime.now().add(duration);
+              _sendTimersToUI(service);
+              _updateDashboardInfos(service);
+            } catch(retryError) {
+              print("Retry failed: $retryError");
+            }
           }
         }
-        service.invoke("error_notification",{'error': e.toString()});
-      }finally{
-        _isSyncedTaskRunning=false;
+        
+        service.invoke("error_notification", {'error': e.toString()});
+        
+      } finally {
+        _isSyncedTaskRunning = false;
+        
+        // Always set next execution time
+        if (_nextSyncTime == null || DateTime.now().isAfter(_nextSyncTime!)) {
+          _nextSyncTime = DateTime.now().add(duration);
+          _sendTimersToUI(service);
+        }
       }
-        _updateDashboardInfos(service);
-
-        _nextSyncTime = DateTime.now().add(duration);
-        _sendTimersToUI(service);
-        print("sync task executed!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-      },
+      
+      print("sync task executed!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    },
     );
     print("sync task called");
   }
@@ -179,6 +225,9 @@ class BackgroundTaskManager {
   }
 
   Future<void> startPeriodicTasks(ServiceInstance service) async {
+    // Restore timer states from persistent storage
+    await _restoreTimerStates();
+    
     // On passe 'service' à chaque méthode pour la communication
     startGpsCollectTask(service);
     startSyncTask(service);

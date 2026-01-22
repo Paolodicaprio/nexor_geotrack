@@ -134,7 +134,10 @@ class _SettingsPageState extends State<SettingsPage> {
     final authService = Provider.of<AuthService>(context, listen: false);
     await authService.logout();
     if (!mounted) return;
-    Navigator.pushReplacementNamed(context, '/login');
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      '/login',
+      (Route<dynamic> route) => false,
+    );
   }
 
   Future<void> showConfirmDialog()async{

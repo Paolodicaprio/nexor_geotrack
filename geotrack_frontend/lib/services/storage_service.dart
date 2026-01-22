@@ -276,6 +276,50 @@ class StorageService {
     await _secureStorage.delete(key: 'password');
   }
 
+  Future<void> saveTimerStates({
+    DateTime? nextGpsTime,
+    DateTime? nextSyncTime,
+    DateTime? nextConfigTime,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (nextGpsTime != null) {
+      await prefs.setString('next_gps_time', nextGpsTime.toIso8601String());
+    } else {
+      await prefs.remove('next_gps_time');
+    }
+    
+    if (nextSyncTime != null) {
+      await prefs.setString('next_sync_time', nextSyncTime.toIso8601String());
+    } else {
+      await prefs.remove('next_sync_time');
+    }
+    
+    if (nextConfigTime != null) {
+      await prefs.setString('next_config_time', nextConfigTime.toIso8601String());
+    } else {
+      await prefs.remove('next_config_time');
+    }
+  }
+
+  Future<Map<String, DateTime?>> getTimerStates() async {
+    final prefs = await SharedPreferences.getInstance();
+    
+    DateTime? parseDateTime(String? value) {
+      if (value == null || value.isEmpty) return null;
+      try {
+        return DateTime.parse(value);
+      } catch (e) {
+        return null;
+      }
+    }
+    
+    return {
+      'gps': parseDateTime(prefs.getString('next_gps_time')),
+      'sync': parseDateTime(prefs.getString('next_sync_time')),
+      'config': parseDateTime(prefs.getString('next_config_time')),
+    };
+  }
+
   Future<String?> getDeviceCode() async {
     return await _secureStorage.read(key: _deviceIdKey);
   }
