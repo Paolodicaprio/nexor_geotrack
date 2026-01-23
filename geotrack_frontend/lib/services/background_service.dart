@@ -229,9 +229,11 @@ class BackgroundTaskManager {
     await _restoreTimerStates();
     
     // On passe 'service' à chaque méthode pour la communication
-    startGpsCollectTask(service);
-    startSyncTask(service);
-    startConfigSyncTask(service);
+    await startGpsCollectTask(service);
+    await startSyncTask(service);
+    await startConfigSyncTask(service);
+    
+    print('✅ All periodic tasks started successfully');
   }
 
   Future<void> restartWithConfig(ServiceInstance service) async{

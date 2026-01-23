@@ -11,6 +11,7 @@ import 'package:flutter_background_service_android/flutter_background_service_an
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:geotrack_frontend/services/background_service.dart';
 import 'package:geotrack_frontend/services/notification_service.dart';
+import 'package:geotrack_frontend/services/watchdog_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
 Future<void> main() async {
@@ -42,6 +43,10 @@ Future<void> main() async {
         onBackground: onIosBackground,
       ),
     );
+    
+    // Initialize WorkManager watchdog
+    await WatchdogService.initialize();
+    print('🔧 WorkManager watchdog initialized');
   }
 
 
