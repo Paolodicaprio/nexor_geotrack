@@ -211,7 +211,9 @@ class BackgroundTaskManager {
       _isConfigSyncTaskRunning=true;
       try{
         await AutoCollectService.refetchConfig();
-        restart(service);
+        // Force reload SharedPreferences after fetching config
+        await StorageService().reloadStorage();
+        await restart(service);
 
       }catch(e){
         // on essaie de se reconnecter si c'est une erreur 401
@@ -219,7 +221,8 @@ class BackgroundTaskManager {
           final loginResponse = await AuthService.tryReconnectUser();
           if(loginResponse.success){
            await AutoCollectService.refetchConfig(retry: true);
-           restart(service);
+           await StorageService().reloadStorage();
+           await restart(service);
           }
         }
         print("errror happened : $e");
@@ -251,8 +254,8 @@ class BackgroundTaskManager {
   }
 
   Future<void> restartWithConfig(ServiceInstance service) async{
-    StorageService().reloadStorage();
-    restart(service);
+    await StorageService().reloadStorage();
+    await restart(service);
   }
 
   // mettre a jour les infos affiché sur le dashboard
@@ -414,7 +417,18 @@ void onStart(ServiceInstance service) async {
     await taskManager.restart(service);
   });
 
-  service.on('config_changed').listen((event)async{
+  service.on('config_changed').listen((event) async {
+    // Receive config directly from main app to avoid SharedPreferences sync issues
+    if (event != null && event['config'] != null) {
+      try {
+        final configData = event['config'] as Map<String, dynamic>;
+        final config = Config.fromJson(configData);
+        await StorageService().saveConfig(config);
+        print('📥 Config received from main app: ${config.toJson()}');
+      } catch (e) {
+        print('❌ Error processing config from event: $e');
+      }
+    }
     await taskManager.restartWithConfig(service);
   });
 

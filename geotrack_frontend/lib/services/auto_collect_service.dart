@@ -42,7 +42,7 @@ class AutoCollectService {
   static Future<void> syncGpsDataBackground({bool retry=false}) async {
     final service = AutoCollectService();
     //  on reload les données dans le cas ou des configurations ont changé depuis l'ui?
-    service._storageService.reloadStorage();
+    await service._storageService.reloadStorage();
     try {
       final pendingCount = await service._syncService.getPendingSyncCount();
       if (pendingCount > 0) {

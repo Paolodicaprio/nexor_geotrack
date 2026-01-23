@@ -22,9 +22,10 @@ class StorageService {
   final String _databaseNameKey = 'database_name';
   final String _configKey = 'config';
 
-  void reloadStorage() async{
-     SharedPreferences prefs = await SharedPreferences.getInstance();
-     await prefs.reload();
+  Future<void> reloadStorage() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    print('🔄 SharedPreferences reloaded');
   }
   Future<void> saveToken(String token) async {
     print('💾 Saving token: ${token}...');
@@ -334,20 +335,34 @@ class StorageService {
 
   Future<void> saveConfig(Config config) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_configKey, json.encode(config.toJson()));
+    final jsonString = json.encode(config.toJson());
+    await prefs.setString(_configKey, jsonString);
+    print('💾 Config saved: ${config.toJson()}');
   }
 
-  Future<Config> getConfig()  async{
+  Future<Config> getConfig() async {
     final prefs = await SharedPreferences.getInstance();
+    // Force reload to get latest values from disk
+    await prefs.reload();
+    
     final jsonConfig = prefs.getString(_configKey);
-    if (jsonConfig ==null){
+    print('📖 Loading config from storage: ${jsonConfig != null ? "found" : "not found"}');
+    
+    if (jsonConfig == null || jsonConfig.isEmpty) {
+      print('⚠️ No saved config, using defaults');
       return Config.fromDefault();
     }
+    
     try {
-      final config = Config.fromJson(json.decode(jsonConfig));
+      final decoded = json.decode(jsonConfig);
+      print('📖 Decoded config: $decoded');
+      final config = Config.fromJson(decoded);
+      print('✅ Config loaded: collection=${config.collectionInterval}s, sync=${config.sendInterval}s, configSync=${config.configSyncInterval}min');
       return config;
     } catch (e) {
-     throw Exception('Error while decoding config: $e');
+      print('❌ Error decoding config: $e');
+      print('⚠️ Falling back to defaults');
+      return Config.fromDefault();
     }
   }
 

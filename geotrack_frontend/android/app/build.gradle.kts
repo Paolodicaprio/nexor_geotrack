@@ -73,8 +73,6 @@ dependencies {
     
     // WorkManager for periodic service health checks
     implementation("androidx.work:work-runtime-ktx:2.9.0")
-
-    //R8 bugs
     implementation("com.google.android.play:core:1.10.3")
     implementation("com.google.android.play:core-ktx:1.8.1")
 }

@@ -37,10 +37,14 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   void initState() {
     super.initState();
-    StorageService().reloadStorage();
-    _loadSettings();
-    _loadApiSettings();
-    _checkBatteryOptimization();
+    _initializeSettings();
+  }
+  
+  Future<void> _initializeSettings() async {
+    await StorageService().reloadStorage();
+    await _loadSettings();
+    await _loadApiSettings();
+    await _checkBatteryOptimization();
   }
 
   Future<void> _checkBatteryOptimization() async {
@@ -110,7 +114,10 @@ class _SettingsPageState extends State<SettingsPage> {
         final newConfig = await apiService.getConfig();
         if( !newConfig.hasSameIntervals(await StorageService().getConfig())){
           await StorageService().saveConfig(newConfig);
-          FlutterBackgroundService().invoke("config_changed");
+          // Pass config directly to background service to avoid SharedPreferences isolation
+          FlutterBackgroundService().invoke("config_changed", {
+            'config': newConfig.toJson(),
+          });
         }
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
