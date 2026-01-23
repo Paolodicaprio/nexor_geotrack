@@ -9,6 +9,7 @@ import 'package:geotrack_frontend/services/storage_service.dart';
 import 'package:hive/hive.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
+import '../models/config_model.dart';
 import '../models/gps_data_model.dart';
 import 'auto_collect_service.dart';
 import 'notification_service.dart';
