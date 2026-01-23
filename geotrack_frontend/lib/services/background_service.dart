@@ -71,20 +71,24 @@ class BackgroundTaskManager {
   }
 
   // Collecte GPS
-  Future<void> startGpsCollectTask(ServiceInstance service) async {
-    // Skip if already running
-    if (_gpsCollectionTimer != null && _gpsCollectionTimer!.isActive) {
+  Future<void> startGpsCollectTask(ServiceInstance service, {bool forceRestart = false}) async {
+    // Skip if already running, unless force restart is requested
+    if (!forceRestart && _gpsCollectionTimer != null && _gpsCollectionTimer!.isActive) {
       print("⚠️ GPS collection task already running - skipping");
       return;
     }
+    
+    // Cancel existing timer if any
+    _gpsCollectionTimer?.cancel();
     
     final storage = StorageService();
     final config = await storage.getConfig();
     final duration = Duration(seconds: config.collectionInterval);
 
+    print("🔄 Starting GPS collection task with interval: ${config.collectionInterval}s");
+
     // Définir la prochaine exécution
     _nextGpsCollectionTime = DateTime.now().add(duration);
-    _gpsCollectionTimer?.cancel();
     _sendTimersToUI(service); // Envoyer la mise à jour
 
     _gpsCollectionTimer = Timer.periodic(duration, (timer) async {
@@ -111,16 +115,20 @@ class BackgroundTaskManager {
   }
 
   // Synchronisation des données GPS
-  Future<void> startSyncTask(ServiceInstance service) async {
-    // Skip if already running
-    if (_syncTimer != null && _syncTimer!.isActive) {
+  Future<void> startSyncTask(ServiceInstance service, {bool forceRestart = false}) async {
+    // Skip if already running, unless force restart is requested
+    if (!forceRestart && _syncTimer != null && _syncTimer!.isActive) {
       print("⚠️ Sync task already running - skipping");
       return;
     }
     
+    // Cancel existing timer if any
+    _syncTimer?.cancel();
+    
     final config = await StorageService().getConfig();
     final duration = Duration(seconds: config.sendInterval);
-    _syncTimer?.cancel();
+
+    print("🔄 Starting sync task with interval: ${config.sendInterval}s");
 
     _nextSyncTime = DateTime.now().add(duration);
     _sendTimersToUI(service);
@@ -177,16 +185,20 @@ class BackgroundTaskManager {
   }
 
   // Synchronisation de la configuration
-  Future<void> startConfigSyncTask(ServiceInstance service) async {
-    // Skip if already running
-    if (_configSyncTimer != null && _configSyncTimer!.isActive) {
+  Future<void> startConfigSyncTask(ServiceInstance service, {bool forceRestart = false}) async {
+    // Skip if already running, unless force restart is requested
+    if (!forceRestart && _configSyncTimer != null && _configSyncTimer!.isActive) {
       print("⚠️ Config sync task already running - skipping");
       return;
     }
     
+    // Cancel existing timer if any
+    _configSyncTimer?.cancel();
+    
     final config = await StorageService().getConfig();
     final duration = Duration(minutes: config.configSyncInterval);
-    _configSyncTimer?.cancel();
+    
+    print("🔄 Starting config sync task with interval: ${config.configSyncInterval} minutes");
 
     _nextConfigSyncTime = DateTime.now().add(duration);
     _sendTimersToUI(service);
@@ -224,16 +236,18 @@ class BackgroundTaskManager {
     print("config sync task called");
   }
 
-  Future<void> startPeriodicTasks(ServiceInstance service) async {
-    // Restore timer states from persistent storage
-    await _restoreTimerStates();
+  Future<void> startPeriodicTasks(ServiceInstance service, {bool forceRestart = false}) async {
+    // Restore timer states from persistent storage (only if not force restarting)
+    if (!forceRestart) {
+      await _restoreTimerStates();
+    }
     
     // On passe 'service' à chaque méthode pour la communication
-    await startGpsCollectTask(service);
-    await startSyncTask(service);
-    await startConfigSyncTask(service);
+    await startGpsCollectTask(service, forceRestart: forceRestart);
+    await startSyncTask(service, forceRestart: forceRestart);
+    await startConfigSyncTask(service, forceRestart: forceRestart);
     
-    print('✅ All periodic tasks started successfully');
+    print('✅ All periodic tasks ${forceRestart ? "restarted" : "started"} successfully');
   }
 
   Future<void> restartWithConfig(ServiceInstance service) async{
@@ -284,7 +298,8 @@ class BackgroundTaskManager {
 
   Future<void> restart(ServiceInstance service) async {
     stopAllTasks();
-    await startPeriodicTasks(service);
+    // Force restart to apply new config
+    await startPeriodicTasks(service, forceRestart: true);
   }
 }
 final BackgroundTaskManager taskManager = BackgroundTaskManager();
