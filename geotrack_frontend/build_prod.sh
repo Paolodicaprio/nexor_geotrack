@@ -1,6 +1,6 @@
 #!/bin/bash
 TIMESTAMP=$(date +%m%d%H%M)
-VERSION="1.0.5"
+VERSION="1.0.1"
 
 echo " Build de la version $VERSION (Code: $TIMESTAMP)"
 

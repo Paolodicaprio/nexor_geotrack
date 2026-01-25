@@ -24,3 +24,15 @@ Flutter application for GPS tracking with offline capabilities.
    ```bash
    Built build\app\outputs\flutter-apk\app-release.apk
 
+## When building apk for Mobile Device Management (MDM)
+
+Always use the build_prod.sh script to build the apk for MDM and ensure to build with (may need to update the script):
+- the same signature as the previous build
+- a greater version code and version name than the previous build
+
+```bash
+./build_prod.sh
+```
+
+At the date of this writing, the build_prod.sh the version name is 1.0.7 and the version code is 26012323. 
+
