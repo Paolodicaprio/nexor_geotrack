@@ -124,13 +124,20 @@ class AuthService with ChangeNotifier {
   }
 
 
+  /// Logout user from UI but KEEP credentials for auto-reconnect
+  /// This is critical for MDM deployments where the app must self-heal
+  /// after session expiry even if user manually logged out
   Future<void> logout() async {
     _isAuthenticated = false;
-    // _token = null;
+    // Keep _token - needed for current session requests
     _userEmail = null;
-    final store = StorageService();
-    await store.deleteUserUsername();
-    // await store.clearAllData();
+    // DO NOT delete credentials - they are needed for auto-reconnect
+    // when session expires (401/303). This ensures the background
+    // sync can always recover without manual intervention.
+    // 
+    // Credentials are only fully cleared when:
+    // - User changes API URL (different server)
+    // - User explicitly requests full data wipe
     notifyListeners();
   }
 

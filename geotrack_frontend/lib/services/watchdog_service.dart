@@ -23,7 +23,10 @@ class WatchdogService {
   }
   
   /// Register a periodic task to check service health every 15 minutes
-  static Future<void> registerPeriodicHealthCheck() async {
+  /// Includes retry logic with in-app timer fallback
+  static Future<void> registerPeriodicHealthCheck({int retryCount = 0}) async {
+    const maxRetries = 3;
+    
     try {
       // Cancel existing task to avoid duplicates
       await Workmanager().cancelByTag(healthCheckTaskTag);
@@ -49,7 +52,17 @@ class WatchdogService {
       
       print('✅ Watchdog periodic health check registered');
     } catch (e) {
-      print('❌ Failed to register periodic health check: $e');
+      print('❌ Failed to register periodic health check (attempt ${retryCount + 1}/$maxRetries): $e');
+      
+      // Retry with delay
+      if (retryCount < maxRetries - 1) {
+        final delay = Duration(seconds: (retryCount + 1) * 2);
+        print('🔄 Retrying watchdog registration in ${delay.inSeconds}s...');
+        await Future.delayed(delay);
+        await registerPeriodicHealthCheck(retryCount: retryCount + 1);
+      } else {
+        print('⚠️ WorkManager registration failed. App relies on service auto-restart.');
+      }
     }
   }
   

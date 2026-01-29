@@ -30,6 +30,8 @@ class GpsService {
     return true;
   }
 
+  /// Get current GPS location with offline-friendly settings
+  /// Uses longer timeout and fallback to last known position when offline
   Future<GpsData> getCurrentLocation() async {
     try {
       final hasPermission = await checkPermission();
@@ -37,17 +39,34 @@ class GpsService {
         throw Exception('Location permissions denied');
       }
 
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.best,
-        // forceAndroidLocationManager: true,
-        timeLimit: const Duration(seconds: 10),
-      );
+      Position? position;
+      
+      try {
+        // Use 'high' accuracy instead of 'best' - works better offline
+        // 'best' relies heavily on A-GPS which requires internet
+        // Increase timeout to 30s to allow pure GPS satellite lock when offline
+        position = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 30),
+        );
+      } on TimeoutException {
+        // GPS timed out (common when offline) - try last known position
+        print('⏱️ GPS timeout, trying last known position...');
+        position = await Geolocator.getLastKnownPosition();
+        
+        if (position == null) {
+          throw Exception('GPS timeout and no cached position available');
+        }
+        print('📍 Using last known position from ${DateTime.now().difference(position.timestamp ?? DateTime.now()).inMinutes} minutes ago');
+      }
+
       if (position.latitude < -90 ||
           position.latitude > 90 ||
           position.longitude < -180 ||
           position.longitude > 180) {
         throw Exception('Invalid location coordinates');
       }
+      
       return GpsData(
         uuid: const Uuid().v4(),
         lat: position.latitude,
@@ -55,9 +74,6 @@ class GpsService {
         timestamp: DateTime.now(),
       );
     } catch (e) {
-      if (e is TimeoutException){
-        Exception("Timout Error: Please enable connection or make sure you are outside to do offline localization");
-      }
       throw Exception('Failed to get location: $e');
     }
   }

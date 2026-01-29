@@ -50,7 +50,12 @@ class ApiService {
           Uri.parse('$apiUrl/transport_tracking/config'),
           headers: headers).timeout(Duration(seconds: 30)));
 
-      if (response.statusCode == 200 && !isSessionInvalid(response)) {
+      // Handle 2xx success responses
+      if (isSuccessResponse(response) && !isSessionInvalid(response)) {
+        // Handle 204 No Content - return default config
+        if (hasEmptyBody(response)) {
+          return Config.fromDefault();
+        }
         return Config.fromJson(json.decode(response.body));
       } else if (isSessionInvalid(response)) {
         throw CustomHttpException("Session Expired.",statusCode: 401);
@@ -59,6 +64,8 @@ class ApiService {
       } else {
         throw CustomHttpException('Erreur ${response.statusCode}: ${response.body}',statusCode: response.statusCode);
       }
+    } on NetworkException catch (e) {
+      throw Exception('Config fetch failed (network): ${e.message}');
     } catch (e) {
       throw Exception('Impossible de charger la config : $e');
     }
@@ -84,14 +91,83 @@ class ApiService {
             () => http.post(url, headers: headers, body: body),
       );
 
-      if (response.statusCode == 200 && !isSessionInvalid(response)) {
-        print('✅ GPS data synced successfully: ${response.body}');
+      // Handle 2xx success responses (200, 201, 204)
+      if (isSuccessResponse(response) && !isSessionInvalid(response)) {
+        print('✅ GPS data synced successfully: ${hasEmptyBody(response) ? "(no content)" : response.body}');
         return true;
-      }else if(isSessionInvalid(response)){
+      } else if (isSessionInvalid(response)) {
         throw CustomHttpException("Session Expired.",statusCode: 401);
       }
 
-      // --- Gestion des erreurs HTTP ---
+      // Handle 413 Payload Too Large - caller should retry with smaller chunks
+      if (response.statusCode == 413) {
+        throw PayloadTooLargeException(
+          'Payload too large (${data.length} items). Try smaller batches.',
+          statusCode: 413,
+        );
+      }
+
+      // Handle 422 Unprocessable Entity - validation errors
+      if (response.statusCode == 422) {
+        Map<String, dynamic>? validationErrors;
+        String errorMsg = 'Validation failed';
+        try {
+          final responseData = jsonDecode(response.body);
+          if (responseData is Map<String, dynamic>) {
+            validationErrors = responseData['errors'] ?? responseData['detail'];
+            errorMsg = responseData['message'] ?? errorMsg;
+          }
+        } catch (_) {}
+        throw ValidationException(errorMsg, errors: validationErrors, statusCode: 422);
+      }
+
+      // Handle 511 Network Authentication Required (captive portal)
+      if (response.statusCode == 511) {
+        throw CaptivePortalException(
+          message: 'Network requires authentication. Please connect to WiFi/network first.',
+        );
+      }
+
+      // Handle 408 Request Timeout - server didn't receive request in time
+      if (response.statusCode == 408) {
+        throw RequestTimeoutException(
+          'Request timed out. Server did not receive the data in time.',
+          statusCode: 408,
+        );
+      }
+
+      // Handle 409 Conflict - likely duplicate UUID
+      if (response.statusCode == 409) {
+        String? conflictingId;
+        try {
+          final responseData = jsonDecode(response.body);
+          if (responseData is Map<String, dynamic>) {
+            conflictingId = responseData['conflicting_id']?.toString() ?? 
+                            responseData['uuid']?.toString();
+          }
+        } catch (_) {}
+        throw ConflictException(
+          'Data conflict detected. Some records may already exist on server.',
+          statusCode: 409,
+          conflictingId: conflictingId,
+        );
+      }
+
+      // Handle 405 Method Not Allowed - API configuration error
+      if (response.statusCode == 405) {
+        List<String>? allowedMethods;
+        final allowHeader = response.headers['allow'];
+        if (allowHeader != null) {
+          allowedMethods = allowHeader.split(',').map((m) => m.trim()).toList();
+        }
+        throw MethodNotAllowedException(
+          'HTTP method not allowed for this endpoint.',
+          statusCode: 405,
+          allowedMethods: allowedMethods,
+        );
+      }
+
+      // --- Gestion des autres erreurs HTTP ---
       String errorMessage;
       try {
         final Map<String, dynamic> responseData = jsonDecode(response.body);
@@ -103,11 +179,9 @@ class ApiService {
           errorMessage = response.body;
         }
       } catch (_) {
-        errorMessage = 'Failed to send GPS data';
+        errorMessage = 'Failed to send GPS data (${response.statusCode})';
       }
-      throw Exception(
-        errorMessage,
-      );
+      throw CustomHttpException(errorMessage, statusCode: response.statusCode);
 
     } catch (e) {
       print('❌ Failed to send GPS data: $e');
@@ -142,7 +216,11 @@ class ApiService {
 
       final response = await SafeHttp.request(()=>http.get(uri, headers: headers));
 
-      if (response.statusCode == 200) {
+      if (isSuccessResponse(response)) {
+        // Handle 204 No Content - return empty list
+        if (hasEmptyBody(response)) {
+          return [];
+        }
         final List<dynamic> data = json.decode(response.body);
         return data.map((json) => GpsData.fromJson(json)).toList();
       } else {
@@ -170,7 +248,11 @@ class ApiService {
       print('📤 Response Status: ${response.statusCode}');
       print('📤 Response Body: ${response.body}');
 
-      if (response.statusCode == 200) {
+      if (isSuccessResponse(response)) {
+        // Handle 204 No Content
+        if (hasEmptyBody(response)) {
+          return Config.fromJson(updates); // Return the updates as config
+        }
         final data = json.decode(response.body);
         return Config.fromJson(data);
       } else {
@@ -201,7 +283,11 @@ class ApiService {
       print('📤 Response Status: ${response.statusCode}');
       print('📤 Response Body: ${response.body}');
 
-      if (response.statusCode == 200) {
+      if (isSuccessResponse(response)) {
+        // Handle 204 No Content
+        if (hasEmptyBody(response)) {
+          return Config.fromJson(config); // Return the config as created
+        }
         final data = json.decode(response.body);
         return Config.fromJson(data);
       } else {

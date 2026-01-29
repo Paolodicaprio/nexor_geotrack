@@ -16,4 +16,14 @@ class Constants {
   static const int defaultSendInterval = 300; //seconds
   static const int syncedLimit = 100; // le nombre de données synchronisées à garder
   static const int pendingLimit = 6000; // le nombre de données non synchronisées à garder
+
+  // HTTP Retry Configuration
+  static const int httpRetryBaseSeconds = 4; // Base for exponential backoff (4^n)
+  static const int httpRetryMaxSeconds = 65; // Max backoff before long wait
+  static const int httpRetryLongWaitMinutes = 15; // Long wait after max retries
+  static const int httpMaxRetryAttempts = 3; // Max retry attempts before long wait
+
+  // GPS Batch Sync Configuration
+  static const int gpsBatchChunkSize = 500; // Max items per sync request (for 413 handling)
+  static const int gpsBatchChunkSizeOnPayloadTooLarge = 100; // Smaller chunk size when 413 occurs
 }

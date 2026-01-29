@@ -6,6 +6,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:geotrack_frontend/services/auth_service.dart';
 import 'package:geotrack_frontend/services/safe_http.dart';
 import 'package:geotrack_frontend/services/storage_service.dart';
+import 'package:geotrack_frontend/utils/constants.dart';
 import 'package:hive/hive.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
@@ -13,6 +14,7 @@ import '../models/config_model.dart';
 import '../models/gps_data_model.dart';
 import 'auto_collect_service.dart';
 import 'notification_service.dart';
+import 'watchdog_service.dart';
 
 
 class BackgroundTaskManager {
@@ -152,6 +154,7 @@ class BackgroundTaskManager {
       } catch(e) {
         print("Error happened: $e");
         
+        // Handle session expiry - try to reconnect
         if (e is CustomHttpException && e.statusCode == 401) {
           final loginResponse = await AuthService.tryReconnectUser();
           if(loginResponse.success) {
@@ -165,6 +168,40 @@ class BackgroundTaskManager {
               print("Retry failed: $retryError");
             }
           }
+        }
+        // Handle server errors (5xx) - don't block next sync, will retry with backoff
+        else if (e is ServerErrorException) {
+          print("⚠️ Server error, will retry later. Error: $e");
+          // Don't block - next sync will happen normally
+        }
+        // Handle rate limiting - don't block next sync
+        else if (e is RateLimitException) {
+          print("⚠️ Rate limited, will retry later. Error: $e");
+          // Don't block - next sync will happen normally
+        }
+        // Handle payload too large - sync_service handles chunking
+        else if (e is PayloadTooLargeException) {
+          print("⚠️ Payload too large, chunking should handle this. Error: $e");
+        }
+        // Handle validation errors - log and continue
+        else if (e is ValidationException) {
+          print("⚠️ Validation error, data may be malformed. Error: $e");
+        }
+        // Handle captive portal - network needs authentication
+        else if (e is CaptivePortalException) {
+          print("⚠️ Captive portal detected, user needs to authenticate network. Error: $e");
+        }
+        // Handle request timeout - will retry on next sync
+        else if (e is RequestTimeoutException) {
+          print("⚠️ Request timed out, will retry on next sync. Error: $e");
+        }
+        // Handle conflict (duplicate data) - log and continue, data may already be synced
+        else if (e is ConflictException) {
+          print("⚠️ Data conflict (possibly already synced). Error: $e");
+        }
+        // Handle method not allowed - API configuration issue
+        else if (e is MethodNotAllowedException) {
+          print("⚠️ Method not allowed - check API configuration. Error: $e");
         }
         
         service.invoke("error_notification", {'error': e.toString()});
@@ -217,7 +254,7 @@ class BackgroundTaskManager {
         await restart(service);
 
       }catch(e){
-        // on essaie de se reconnecter si c'est une erreur 401
+        // Handle session expiry - try to reconnect
         if (e is CustomHttpException && e.statusCode == 401){
           final loginResponse = await AuthService.tryReconnectUser();
           if(loginResponse.success){
@@ -226,7 +263,19 @@ class BackgroundTaskManager {
            await restart(service);
           }
         }
-        print("errror happened : $e");
+        // Handle server errors (5xx) - don't block next config sync
+        else if (e is ServerErrorException) {
+          print("⚠️ Server error during config sync, will retry later. Error: $e");
+        }
+        // Handle rate limiting - don't block next config sync
+        else if (e is RateLimitException) {
+          print("⚠️ Rate limited during config sync, will retry later. Error: $e");
+        }
+        // Handle captive portal - network needs authentication
+        else if (e is CaptivePortalException) {
+          print("⚠️ Captive portal detected during config sync. Error: $e");
+        }
+        print("error happened : $e");
         service.invoke("error_notification",{'error': e.toString()});
       }finally{
         _isConfigSyncTaskRunning=false;
@@ -441,8 +490,10 @@ void onStart(ServiceInstance service) async {
 /// Auto-start tasks when service starts (e.g., after device boot)
 /// If user was previously authenticated (has stored token), start all tasks including sync
 /// Otherwise, only start GPS collection
-Future<void> _autoStartTasksOnBoot(ServiceInstance service) async {
-  print("🚀 Auto-starting tasks on boot...");
+/// Includes retry logic to ensure tasks start even if initial attempt fails
+Future<void> _autoStartTasksOnBoot(ServiceInstance service, {int retryCount = 0}) async {
+  const maxRetries = 3;
+  print("🚀 Auto-starting tasks on boot (attempt ${retryCount + 1}/$maxRetries)...");
   
   try {
     final storage = StorageService();
@@ -467,5 +518,21 @@ Future<void> _autoStartTasksOnBoot(ServiceInstance service) async {
     }
   } catch (e) {
     print("❌ Error auto-starting tasks: $e");
+    
+    // Retry with exponential backoff
+    if (retryCount < maxRetries - 1) {
+      final delay = Duration(seconds: (retryCount + 1) * 5); // 5s, 10s, 15s
+      print("🔄 Retrying auto-start in ${delay.inSeconds}s...");
+      await Future.delayed(delay);
+      await _autoStartTasksOnBoot(service, retryCount: retryCount + 1);
+    } else {
+      print("❌ Auto-start failed after $maxRetries attempts. Watchdog will retry later.");
+      // Trigger immediate watchdog check as fallback
+      try {
+        await WatchdogService.registerOneTimeHealthCheck();
+      } catch (_) {
+        print("⚠️ Could not schedule watchdog fallback");
+      }
+    }
   }
 }

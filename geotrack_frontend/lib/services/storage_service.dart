@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:geotrack_frontend/utils/db_name_extractor.dart';
@@ -22,6 +23,43 @@ class StorageService {
   final String _databaseNameKey = 'database_name';
   final String _configKey = 'config';
 
+  /// Safe read from secure storage with BadPaddingException recovery
+  /// This handles corrupted storage from app updates/backup restores
+  Future<String?> _safeSecureRead(String key) async {
+    try {
+      return await _secureStorage.read(key: key);
+    } on PlatformException catch (e) {
+      if (_isEncryptionError(e)) {
+        print('🔐 Encryption key mismatch for key "$key" - clearing corrupted data');
+        await _clearCorruptedSecureStorage();
+        return null; // Caller handles missing data (triggers re-login)
+      }
+      rethrow;
+    }
+  }
+
+  /// Check if exception is related to encryption/decryption failure
+  bool _isEncryptionError(PlatformException e) {
+    final msg = e.message?.toLowerCase() ?? '';
+    final details = e.details?.toString().toLowerCase() ?? '';
+    return msg.contains('badpaddingexception') ||
+           msg.contains('bad decrypt') ||
+           msg.contains('cipher') ||
+           details.contains('badpaddingexception') ||
+           details.contains('bad decrypt');
+  }
+
+  /// Clear all secure storage data when encryption keys are corrupted
+  /// This happens after app reinstall/update or backup restore from different device
+  Future<void> _clearCorruptedSecureStorage() async {
+    try {
+      await _secureStorage.deleteAll();
+      print('🧹 Cleared corrupted secure storage - user will need to re-login');
+    } catch (e) {
+      print('❌ Failed to clear secure storage: $e');
+    }
+  }
+
   Future<void> reloadStorage() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.reload();
@@ -33,7 +71,7 @@ class StorageService {
   }
 
   Future<String?> getToken() async {
-    final token = await _secureStorage.read(key: _cookieKey);
+    final token = await _safeSecureRead(_cookieKey);
     print('💾 Retrieved token: ${token != null ? "exists" : "null"}');
     return token;
   }
@@ -258,7 +296,7 @@ class StorageService {
   }
 
   Future<String?> getUserUsername() async {
-    return await _secureStorage.read(key: 'user_username');
+    return await _safeSecureRead('user_username');
   }
 
   Future<void> deleteUserUsername() async {
@@ -270,7 +308,7 @@ class StorageService {
   }
 
   Future<String?> getPassword() async {
-    return await _secureStorage.read(key: 'password');
+    return await _safeSecureRead('password');
   }
 
   Future<void> deletePassword() async {
@@ -322,7 +360,7 @@ class StorageService {
   }
 
   Future<String?> getDeviceCode() async {
-    return await _secureStorage.read(key: _deviceIdKey);
+    return await _safeSecureRead(_deviceIdKey);
   }
 
   Future<void> saveDeviceId(String deviceId) async {
