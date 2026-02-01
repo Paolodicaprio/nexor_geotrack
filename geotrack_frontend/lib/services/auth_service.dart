@@ -77,6 +77,10 @@ class AuthService with ChangeNotifier {
             await StorageService().saveToken(_token!);
             await StorageService().saveUserUsername(username);
             await StorageService().savePassword(password);
+            
+            // Clear manual logout flag on successful login
+            await StorageService().clearManualLogout();
+            
             notifyListeners();
 
             return LoginResponse(success: true, token: _token);
@@ -131,6 +135,10 @@ class AuthService with ChangeNotifier {
     _isAuthenticated = false;
     // Keep _token - needed for current session requests
     _userEmail = null;
+    
+    // Mark that user manually logged out - prevents auto-login on app restart
+    await StorageService().setManualLogout(true);
+    
     // DO NOT delete credentials - they are needed for auto-reconnect
     // when session expires (401/303). This ensures the background
     // sync can always recover without manual intervention.
@@ -154,6 +162,16 @@ class AuthService with ChangeNotifier {
 
   Future<bool> checkAuth() async {
     try {
+      // Check if user manually logged out
+      final isManuallyLoggedOut = await StorageService().isManuallyLoggedOut();
+      if (isManuallyLoggedOut) {
+        print('🔒 User manually logged out - skipping auto-login');
+        _isAuthenticated = false;
+        _userEmail = null;
+        notifyListeners();
+        return false;
+      }
+      
       final token = await StorageService().getToken();
       final username = await StorageService().getUserUsername();
 

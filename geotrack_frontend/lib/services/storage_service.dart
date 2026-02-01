@@ -22,6 +22,7 @@ class StorageService {
   final String _deviceIdKey = 'device_id';
   final String _databaseNameKey = 'database_name';
   final String _configKey = 'config';
+  final String _manualLogoutKey = 'manual_logout';
 
   /// Safe read from secure storage with BadPaddingException recovery
   /// This handles corrupted storage from app updates/backup restores
@@ -413,5 +414,25 @@ class StorageService {
   Future<void> setLastCollectionTime(DateTime last_collect) async{
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString("last_collection",last_collect.toIso8601String());
+  }
+  
+  // Manual logout tracking methods
+  Future<void> setManualLogout(bool isLoggedOut) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_manualLogoutKey, isLoggedOut);
+    print('🔒 Manual logout state set to: $isLoggedOut');
+  }
+  
+  Future<bool> isManuallyLoggedOut() async {
+    final prefs = await SharedPreferences.getInstance();
+    final isLoggedOut = prefs.getBool(_manualLogoutKey) ?? false;
+    print('🔒 Manual logout state: $isLoggedOut');
+    return isLoggedOut;
+  }
+  
+  Future<void> clearManualLogout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_manualLogoutKey);
+    print('🔓 Manual logout state cleared');
   }
 }
