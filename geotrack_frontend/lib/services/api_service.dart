@@ -45,9 +45,15 @@ class ApiService {
     try {
       final apiUrl = await getApiUrl();
       final headers = await _getHeaders();
+      final deviceCode = await StorageService().getDeviceCode();
+      
+      if (deviceCode == null) {
+        print('⚠️ No device code set, using default config');
+        return Config.fromDefault();
+      }
 
       final response = await SafeHttp.request(() => http.get(
-          Uri.parse('$apiUrl/transport_tracking/config'),
+          Uri.parse('$apiUrl/transport_tracking/$deviceCode/config'),
           headers: headers).timeout(Duration(seconds: 30)));
 
       // Handle 2xx success responses
