@@ -20,7 +20,7 @@ class Constants {
   // HTTP Retry Configuration
   static const int httpRetryBaseSeconds = 4; // Base for exponential backoff (4^n)
   static const int httpRetryMaxSeconds = 65; // Max backoff before long wait
-  static const int httpRetryLongWaitMinutes = 15; // Long wait after max retries
+  static const int httpRetryLongWaitMinutes = 30; // Long wait after max retries
   static const int httpMaxRetryAttempts = 3; // Max retry attempts before long wait
 
   // GPS Batch Sync Configuration
