@@ -1,27 +1,47 @@
-class Config {
-  final int xParameter;
-  final int yParameter;
-  final String deviceId;
+import '../utils/constants.dart';
 
-  Config({
-    required this.xParameter,
-    required this.yParameter,
-    required this.deviceId,
+class Config {
+  final int id;
+  final int collectionInterval; //en seconde
+  final int sendInterval;       // en seconde
+  final int configSyncInterval; // en minute
+
+  Config({this.id = 0,
+    required this.collectionInterval,
+    required this.sendInterval,
+    required this.configSyncInterval
+
   });
+  factory Config.fromDefault(){
+    return Config(
+      id: 0,
+      collectionInterval: Constants.defaultCollectionInterval,
+      sendInterval: Constants.defaultSendInterval,
+      configSyncInterval: Constants.defaultConfigSyncInterval
+    );
+  }
 
   factory Config.fromJson(Map<String, dynamic> json) {
     return Config(
-      xParameter: json['x_parameter'],
-      yParameter: json['y_parameter'],
-      deviceId: json['device_id'],
+      id: json['id'] ?? 0,
+      collectionInterval: json['position_sampling_interval'] ?? Constants.defaultCollectionInterval,
+      sendInterval: json['position_sync_interval'] ?? Constants.defaultSendInterval,
+      configSyncInterval: json['config_sync_interval'] ?? Constants.defaultConfigSyncInterval
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
-      'x_parameter': xParameter,
-      'y_parameter': yParameter,
-      'device_id': deviceId,
+      'id': id,
+      'position_sampling_interval': collectionInterval,
+      'position_sync_interval': sendInterval,
+      'config_sync_interval': configSyncInterval
     };
+  }
+  /// Compare deux configs sur les 3 intervalles
+  bool hasSameIntervals(Config other) {
+    return collectionInterval == other.collectionInterval &&
+        sendInterval == other.sendInterval &&
+        configSyncInterval == other.configSyncInterval;
   }
 }

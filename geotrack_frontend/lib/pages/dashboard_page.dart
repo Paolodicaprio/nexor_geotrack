@@ -1,18 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:geotrack_frontend/models/config_model.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:geotrack_frontend/models/gps_data_model.dart';
-import 'package:geotrack_frontend/services/api_service.dart';
-import 'package:provider/provider.dart';
-import 'package:geotrack_frontend/services/auth_service.dart';
-import 'package:geotrack_frontend/services/gps_service.dart';
-import 'package:geotrack_frontend/services/sync_service.dart';
+
 import 'package:geotrack_frontend/services/storage_service.dart';
 import 'package:geotrack_frontend/widgets/connection_status.dart';
 import 'package:geotrack_frontend/pages/settings_page.dart';
 import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:geotrack_frontend/services/auto_collect_service.dart'; // IMPORT AJOUTÉ
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({Key? key}) : super(key: key);
@@ -23,116 +17,123 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage>
     with TickerProviderStateMixin {
-  final GpsService _gpsService = GpsService();
-  final SyncService _syncService = SyncService();
   final StorageService _storageService = StorageService();
-  Config? _currentConfig;
-  bool _configLoading = false;
-
   Map<String, dynamic> _stats = {};
   Timer? _collectTimer;
   Timer? _syncTimer;
   Timer? _statsTimer;
   Timer? _prefsCheckTimer;
+  Timer? _configSyncTimer;
+
+  Timer? _uiTimer;
 
   DateTime? _nextCollection;
   DateTime? _nextSync;
+  DateTime? _nextConfigSync;
+
+  // Les durées restantes que nous allons afficher
+  Duration _gpsCountdown = Duration.zero;
+  Duration _syncCountdown = Duration.zero;
+  Duration _configCountdown = Duration.zero;
 
   late TabController _tabController;
-
-  int _collectInterval = 5;
-  int _syncInterval = 10;
 
   // Ajout des variables d'état pour les données
   List<GpsData> _pendingData = [];
   List<GpsData> _historyData = [];
-  bool _pendingLoading = true;
-  bool _historyLoading = true;
+  bool _pendingLoading = false;
+  bool _historyLoading = false;
+  StreamSubscription? _dataUpdatedSubscription;
+  StreamSubscription? _timerUpdatedSubscription;
+  StreamSubscription? _errorNotificationSubscription;
+
 
   @override
-  void initState() {
+  void initState(){
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    _initIntervalsAndTimers();
-    _loadStats();
-    _loadConfig();
-    _loadPendingData();
-    _loadHistoryData();
-    _startPreferencesChecker();
-  }
-
-  Future<void> _initIntervalsAndTimers() async {
-    // Attendre que la configuration soit chargée
-    while (_currentConfig == null && _configLoading) {
-      await Future.delayed(const Duration(milliseconds: 100));
-    }
-
-    // Utiliser les valeurs de configuration ou les valeurs par défaut
-    final collectInterval = _currentConfig?.xParameter ?? 5;
-    final syncInterval = _currentConfig?.yParameter ?? 10;
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('collect_interval', collectInterval);
-    await prefs.setInt('sync_interval', syncInterval);
-
-    setState(() {
-      _collectInterval = collectInterval;
-      _syncInterval = syncInterval;
-      _nextCollection = DateTime.now().add(Duration(minutes: _collectInterval));
-      _nextSync = DateTime.now().add(Duration(minutes: _syncInterval));
-    });
-
-    // Première collecte dès l'ouverture
-    await _autoCollect();
-    await _loadPendingData();
-    await _loadHistoryData();
-    _startAutoCollect();
-    _startAutoSync();
-    _startStatsTimer();
-  }
-
-  Future<void> _loadConfig() async {
-    setState(() => _configLoading = true);
-    try {
-      final apiService = ApiService();
-      final config = await apiService.getConfig();
-
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt('collect_interval', config.xParameter);
-      await prefs.setInt('sync_interval', config.yParameter);
-
+    // 1. Écouter les mises à jour envoyées par le service de fond
+   _timerUpdatedSubscription =  FlutterBackgroundService().on('update_ui_timers').listen((data) {
+      if (data == null) return;
       setState(() {
-        _currentConfig = config;
-        _collectInterval = config.xParameter;
-        _syncInterval = config.yParameter;
-        _nextCollection = DateTime.now().add(
-          Duration(minutes: _collectInterval),
-        );
-        _nextSync = DateTime.now().add(Duration(minutes: _syncInterval));
+        _nextCollection = data['nextGpsTime'] != null ? DateTime.parse(data['nextGpsTime']!) : null;
+        _nextSync = data['nextSyncTime'] != null ? DateTime.parse(data['nextSyncTime']!) : null;
+        _nextConfigSync = data['nextConfigSyncTime'] != null ? DateTime.parse(data['nextConfigSyncTime']!) : null;
       });
+      _storageService.reloadStorage();
+    });
 
-      // Redémarrer les timers avec les nouveaux intervalles
-      _restartTimersWithNewIntervals();
-    } catch (e) {
-      print('❌ Error loading config: $e');
-    } finally {
-      setState(() => _configLoading = false);
-    }
+    _dataUpdatedSubscription = FlutterBackgroundService().on('data_updated').listen((data) async {
+       if (data == null ) return;
+       if(data["task"] !=null){
+         setState(() {
+           _stats={
+             'pending_count':data['stats']['pending_count'],
+           'last_collection': data['stats']['last_collection'] != null ? DateTime.parse(data['stats']['last_collection']) : null,};
+           final pendingList = data["pendingData"] as List<dynamic>;
+           final allList = data["allData"] as List<dynamic>;
+           _pendingData = pendingList
+               .map((e) => GpsData.fromJson(Map<String, dynamic>.from(e)))
+               .toList();
+
+           _historyData = allList
+               .map((e) => GpsData.fromJson(Map<String, dynamic>.from(e)))
+               .toList();
+         });
+       }
+
+    });
+
+   _errorNotificationSubscription =  FlutterBackgroundService().on("error_notification").listen((data){
+       if (data !=null && data['error'] !=null){
+         ScaffoldMessenger.of(context).showSnackBar(
+             SnackBar(content: Text(data['error']),backgroundColor: Colors.redAccent,duration: Duration(seconds: 5),)
+         );
+       }
+     });
+
+    // 2. Lancer un timer local pour rafraîchir l'UI chaque seconde
+    _uiTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      updateCountdowns();
+    });
+
+    // 3. Demander les données actuelles au service au cas où il tourne déjà
+    FlutterBackgroundService().invoke('get_next_execution_times');
+    _tabController = TabController(length: 2, vsync: this);
+    FlutterBackgroundService().invoke("get_dashboard_infos");
+    // _loadStats();
+    // _loadHistoryData();
+    // _loadPendingData();
+    _checkDeviceCode();
   }
 
-  Future<void> _loadIntervals() async {
-    final prefs = await SharedPreferences.getInstance();
+  void updateCountdowns() {
+    if (!mounted) return;
+
+    final now = DateTime.now();
     setState(() {
-      _collectInterval = prefs.getInt('collect_interval') ?? 5;
-      _syncInterval = prefs.getInt('sync_interval') ?? 10;
+      _gpsCountdown = _nextCollection?.difference(now) ?? Duration.zero;
+      _syncCountdown = _nextSync?.difference(now) ?? Duration.zero;
+      _configCountdown = _nextConfigSync?.difference(now) ?? Duration.zero;
+
+      // Si le compte à rebours est terminé, demander une nouvelle valeur au service
+      if (_gpsCountdown.isNegative || _syncCountdown.isNegative || _configCountdown.isNegative) {
+        FlutterBackgroundService().invoke('get_next_execution_times');
+      }
     });
   }
+
+
 
   Future<void> _loadStats() async {
+    final pendingData = await _storageService.getPendingGpsData();
+    final lastCollection = await _storageService.getLastCollectionTime();
+
     setState(() {
-      _stats = {'pending_count': _pendingData.length, 'last_collection': null};
+      _stats = {
+        'pending_count': pendingData.length,
+        'last_collection': lastCollection
+      };
     });
-    // À compléter selon tes besoins
   }
 
   Future<void> _loadPendingData() async {
@@ -151,11 +152,8 @@ class _DashboardPageState extends State<DashboardPage>
     final pendingData = await _storageService.getPendingGpsData();
     final syncedData = await _storageService.getSyncedGpsData();
 
-    // S'assurer que les données en attente ont synced: false
     final pendingWithStatus =
         pendingData.map((data) => data.copyWith(synced: false)).toList();
-
-    // S'assurer que les données synchronisées ont synced: true
     final syncedWithStatus =
         syncedData.map((data) => data.copyWith(synced: true)).toList();
 
@@ -174,112 +172,58 @@ class _DashboardPageState extends State<DashboardPage>
     _collectTimer?.cancel();
     _syncTimer?.cancel();
     _statsTimer?.cancel();
+    _uiTimer?.cancel();
     _prefsCheckTimer?.cancel();
+    _configSyncTimer?.cancel();
     _tabController.dispose();
+    _dataUpdatedSubscription?.cancel();
+    _timerUpdatedSubscription?.cancel();
+    _errorNotificationSubscription?.cancel();
     super.dispose();
   }
-
-  void _startAutoCollect() {
-    _collectTimer?.cancel();
-    _collectTimer = Timer.periodic(Duration(minutes: _collectInterval), (
-      timer,
-    ) async {
-      await _autoCollect();
-      setState(() {
-        _nextCollection = DateTime.now().add(
-          Duration(minutes: _collectInterval),
-        );
-      });
-      await _loadPendingData();
-      await _loadHistoryData();
-    });
-  }
-
-  void _startAutoSync() {
-    _syncTimer?.cancel();
-    _syncTimer = Timer.periodic(Duration(minutes: _syncInterval), (
-      timer,
-    ) async {
-      await _autoSync();
-      setState(() {
-        _nextSync = DateTime.now().add(Duration(minutes: _syncInterval));
-      });
-      await _loadPendingData();
-      await _loadHistoryData();
-    });
-  }
-
-  void _startStatsTimer() {
-    _statsTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      setState(() {});
-    });
-  }
-
-  // Nouvelle méthode pour vérifier les changements de préférences
-  void _startPreferencesChecker() {
-    _prefsCheckTimer = Timer.periodic(const Duration(seconds: 2), (
-      timer,
-    ) async {
-      if (!mounted) return;
-
-      final prefs = await SharedPreferences.getInstance();
-      final newCollectInterval = prefs.getInt('collect_interval') ?? 5;
-      final newSyncInterval = prefs.getInt('sync_interval') ?? 10;
-
-      if (newCollectInterval != _collectInterval ||
-          newSyncInterval != _syncInterval) {
-        print(
-          '🔄 Intervalles modifiés: $newCollectInterval min, $newSyncInterval min',
-        );
-        await _restartTimersWithNewIntervals();
-      }
-    });
-  }
-
-  Future<void> _restartTimersWithNewIntervals() async {
-    // D'abord charger les nouveaux intervalles depuis SharedPreferences
-    await _loadIntervals();
-
-    _collectTimer?.cancel();
-    _syncTimer?.cancel();
-
-    // Redémarrer les timers avec les nouveaux intervalles
-    _startAutoCollect();
-    _startAutoSync();
-
-    // Mettre à jour l'interface
-    setState(() {
-      _nextCollection = DateTime.now().add(Duration(minutes: _collectInterval));
-      _nextSync = DateTime.now().add(Duration(minutes: _syncInterval));
-    });
-  }
-
-  Future<void> _autoCollect() async {
-    try {
-      // Utilisation de la nouvelle méthode
-      await AutoCollectService.collectGpsDataBackground();
-      await _loadStats();
-      await _loadPendingData(); // Recharger les données en attente
-      await _loadHistoryData(); // Recharger l'historique
-    } catch (_) {}
-  }
-
-  Future<void> _autoSync() async {
-    try {
-      // Utilisation de la nouvelle méthode
-      await AutoCollectService.syncGpsDataBackground();
-      // Recharger toutes les données après synchronisation
-      await Future.wait([_loadStats(), _loadPendingData(), _loadHistoryData()]);
-    } catch (e) {
-      print('❌ Auto sync error: $e');
+ Future<void> _checkDeviceCode() async {
+    final deviceCode = await _storageService.getDeviceCode();
+    if (deviceCode!=null){
+      return;
     }
-  }
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder:
+          (context) => AlertDialog(
+        title: const Text('Device Code Required'),
+        content: const Text(
+          'Please provide the device code on the parameters to be able to sync the data',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+            },
+            child: const Text('close'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SettingsPage()),
+              );
+            },
+            child: const Text('Go to Settings'),
+          ),
+        ],
+      ),
+    );
+ }
 
-  String _formatCountdown(DateTime? target) {
-    if (target == null) return 'N/A';
-    final now = DateTime.now();
-    final diff = target.difference(now);
-    if (diff.isNegative) return 'Maintenant';
+
+  String _formatCountdown(Duration diff) {
+    // if (target == null) return 'N/A';
+    // final now = DateTime.now();
+    // final diff = target.difference(now);
+    if (diff.isNegative) return 'Now';
     if (diff.inMinutes < 1) return '${diff.inSeconds}s';
     if (diff.inMinutes < 60) return '${diff.inMinutes}min';
     return '${diff.inHours}h${diff.inMinutes.remainder(60)}min';
@@ -290,21 +234,17 @@ class _DashboardPageState extends State<DashboardPage>
     return Scaffold(
       floatingActionButton: FloatingActionButton(
         onPressed: () async {
-          await Future.wait([
-            _loadPendingData(),
-            _loadHistoryData(),
-            _loadStats(),
-          ]);
+          FlutterBackgroundService().invoke("get_dashboard_infos");
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(SnackBar(content: Text('Données rafraîchies')));
+          ).showSnackBar( SnackBar(content: const Text('Data refreshed')));
         },
         child: Icon(Icons.refresh),
         backgroundColor: Colors.green[700],
       ),
       appBar: AppBar(
-        title: const Text(
-          'Nexor GeoTrack',
+        title:  Text(
+          'NexOR GeoTrack',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         backgroundColor: Colors.green[700],
@@ -314,14 +254,10 @@ class _DashboardPageState extends State<DashboardPage>
           IconButton(
             icon: const Icon(Icons.settings, color: Colors.white),
             onPressed: () async {
-              final needsRefresh = await Navigator.push(
+              await Navigator.push(
                 context,
                 MaterialPageRoute(builder: (context) => const SettingsPage()),
               );
-
-              if (needsRefresh == true && mounted) {
-                await _restartTimersWithNewIntervals();
-              }
             },
           ),
         ],
@@ -331,8 +267,8 @@ class _DashboardPageState extends State<DashboardPage>
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white70,
           tabs: const [
-            Tab(text: 'Tableau de bord', icon: Icon(Icons.dashboard)),
-            Tab(text: 'Historique', icon: Icon(Icons.history)),
+            Tab(text: 'Dashboard', icon: Icon(Icons.dashboard)),
+            Tab(text: 'History', icon: Icon(Icons.history)),
           ],
         ),
       ),
@@ -357,7 +293,7 @@ class _DashboardPageState extends State<DashboardPage>
           _buildStatsCards(),
           const SizedBox(height: 24),
           const Text(
-            'Données en attente de synchronisation',
+            'Data pending synchronization',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 16),
@@ -390,7 +326,7 @@ class _DashboardPageState extends State<DashboardPage>
                 Icon(Icons.check_circle, color: Colors.green, size: 48),
                 SizedBox(height: 8),
                 Text(
-                  'Toutes les données sont synchronisées',
+                  'All data is synchronized',
                   style: TextStyle(fontSize: 16, color: Colors.grey),
                   textAlign: TextAlign.center,
                 ),
@@ -420,7 +356,7 @@ class _DashboardPageState extends State<DashboardPage>
                   Icons.pending_actions,
                   color: Colors.orange,
                 ),
-                title: const Text('Données en attente'),
+                title: const Text('Pending data'),
                 trailing: Chip(
                   label: Text('${_pendingData.length}'),
                   backgroundColor: Colors.orange.withOpacity(0.2),
@@ -439,8 +375,7 @@ class _DashboardPageState extends State<DashboardPage>
                         '${data.lat.toStringAsFixed(6)}, ${data.lon.toStringAsFixed(6)}',
                         style: const TextStyle(fontSize: 14),
                       ),
-                      subtitle: Text(
-                        DateFormat('dd/MM HH:mm').format(data.timestamp),
+                      subtitle: Text("${data.timestamp.toUtc().toIso8601String().split('.').first}Z UTC",
                         style: const TextStyle(fontSize: 12),
                       ),
                       trailing: Icon(
@@ -468,7 +403,7 @@ class _DashboardPageState extends State<DashboardPage>
       return const Center(child: CircularProgressIndicator());
     }
     if (_historyData.isEmpty) {
-      return const Center(child: Text('Aucune donnée historique disponible'));
+      return const Center(child: Text('No historical data available'));
     }
 
     return RefreshIndicator(
@@ -498,12 +433,11 @@ class _DashboardPageState extends State<DashboardPage>
                 '${data.lat.toStringAsFixed(6)}, ${data.lon.toStringAsFixed(6)}',
                 style: const TextStyle(fontWeight: FontWeight.w500),
               ),
-              subtitle: Text(
-                DateFormat('dd/MM/yyyy HH:mm').format(data.timestamp),
+              subtitle: Text("${data.timestamp.toUtc().toIso8601String().split('.').first}Z UTC",
                 style: const TextStyle(fontSize: 13),
               ),
               trailing: Text(
-                isSynced ? 'Synchronisé' : 'En attente',
+                isSynced ? 'Synced' : 'Pending',
                 style: TextStyle(
                   color: isSynced ? Colors.green : Colors.orange,
                   fontWeight: FontWeight.bold,
@@ -533,7 +467,7 @@ class _DashboardPageState extends State<DashboardPage>
                     Icon(Icons.analytics, color: Colors.green),
                     SizedBox(width: 8),
                     Text(
-                      'Statistiques de Collecte',
+                      'Collection Statistics',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -542,25 +476,36 @@ class _DashboardPageState extends State<DashboardPage>
                   ],
                 ),
                 const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    _buildStatCard(
-                      '📦 En attente',
-                      '${_stats['pending_count'] ?? 0}',
-                      Colors.orange,
-                    ),
-                    _buildStatCard(
-                      '⏰ Prochaine collecte',
-                      _formatCountdown(_nextCollection),
-                      Colors.blue,
-                    ),
-                    _buildStatCard(
-                      '🔄 Prochaine sync',
-                      _formatCountdown(_nextSync),
-                      Colors.green,
-                    ),
-                  ],
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  child: Row(
+                      children: [
+                        _buildStatCard(
+                          '📦 Pending',
+                          '${_stats['pending_count'] ?? 0}',
+                          Colors.orange,
+                        ),
+                        _buildStatCard(
+                          '⏰ Next collection',
+                          _formatCountdown(_gpsCountdown),
+                          Colors.blue,
+                        ),
+                        _buildStatCard(
+                          '🔄 Next sync',
+                          _formatCountdown(_syncCountdown),
+                          Colors.green,
+                        ),
+                        _buildStatCard(
+                            '⚙️ Next config',
+                            _formatCountdown(_configCountdown),
+                            Colors.purple
+                        ),
+                      ].map((card) => Padding(
+                      padding: const EdgeInsets.only(right: 10.0),
+                      child: card,
+                    )).toList(),
+                  ),
                 ),
               ],
             ),
@@ -583,15 +528,15 @@ class _DashboardPageState extends State<DashboardPage>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Dernière collecte',
+                        'Last collection',
                         style: TextStyle(fontSize: 14, color: Colors.grey),
                       ),
                       Text(
                         _stats['last_collection'] != null
-                            ? DateFormat(
-                              'dd/MM/yyyy HH:mm',
-                            ).format(_stats['last_collection'])
-                            : 'Jamais',
+                            ? "${DateFormat(
+                          'dd/MM/yyyy HH:mm',
+                        ).format(_stats['last_collection'].toUtc())} UTC"
+                            : 'Never',
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,

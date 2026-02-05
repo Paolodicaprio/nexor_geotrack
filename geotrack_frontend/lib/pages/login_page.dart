@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:geotrack_frontend/pages/register_page.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:geotrack_frontend/services/gps_service.dart';
+import 'package:geotrack_frontend/services/storage_service.dart';
 import 'package:provider/provider.dart';
 import 'package:geotrack_frontend/services/auth_service.dart';
-import 'package:geotrack_frontend/pages/forgot_pin_page.dart';
+
+import '../services/auto_collect_service.dart';
+import '../utils/db_name_extractor.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -12,22 +17,50 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
+  final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _pinController = TextEditingController();
+  final TextEditingController _apiUrlController = TextEditingController();
+  final TextEditingController _databaseNameController = TextEditingController();
+  final FocusNode apiFocusNode = FocusNode();
+
   final _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
   bool _obscurePin = true;
 
-  // Couleurs personnalisées
+  // Custom colors
   final Color _primaryGreen = const Color(0xFF2ECC40);
   final Color _backgroundWhite = Colors.white;
 
   @override
   void initState() {
     super.initState();
+    fillFieldsFromStorage();
     _pinController.addListener(() {
       setState(() {});
     });
+    // When the user leaves the apiUrl field, we try to extract the dbName
+    apiFocusNode.addListener(() {
+      if (!apiFocusNode.hasFocus) {
+        // The user has left the API URL field
+        final apiUrl = _apiUrlController.text.trim();
+        final dbName = extractDatabaseName(apiUrl);
+        if (dbName != null) {
+          setState(() {
+            _databaseNameController.text = dbName;
+          });
+        }
+      }
+    });
   }
+
+  Future<void> fillFieldsFromStorage()async{
+    final storageService = StorageService();
+    if (await storageService.hasCustomUrl()){
+      _apiUrlController.text = await storageService.getCustomUrl();
+      _databaseNameController.text = await storageService.getDatabaseName();
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -63,7 +96,7 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const SizedBox(height: 24),
                   Text(
-                    'Nexor GeoTrack',
+                    'NexOR GeoTrack',
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
@@ -72,15 +105,116 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Entrez votre PIN',
+                    'Enter your credentials to login',
                     style: TextStyle(fontSize: 16, color: Colors.grey[700]),
                   ),
                   const SizedBox(height: 24),
+                  //API URL
+                  TextFormField(
+                    controller: _apiUrlController,
+                    focusNode: apiFocusNode,
+                    decoration: InputDecoration(
+                      labelText: 'API Base URL',
+                      labelStyle: TextStyle(color: _primaryGreen),
+                      filled: true,
+                      fillColor: _primaryGreen.withOpacity(0.08),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: _primaryGreen),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: _primaryGreen),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: _primaryGreen, width: 2),
+                      ),
+                      prefixIcon: Icon(Icons.link, color: _primaryGreen),
+                    ),
+                    keyboardType: TextInputType.text,
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return "Please enter an URL";
+                      }
+                      final uri = Uri.tryParse(value.trim());
+                      if (uri == null ||
+                          (!uri.hasScheme || !uri.hasAuthority)) {
+                        return 'invalid URL ';
+                      }
+
+                      return null;
+                    },
+                  ),
+                  // DATABASE NAME
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _databaseNameController,
+                    decoration: InputDecoration(
+                      labelText: 'Database Name',
+                      labelStyle: TextStyle(color: _primaryGreen),
+                      filled: true,
+                      fillColor: _primaryGreen.withOpacity(0.08),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: _primaryGreen),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: _primaryGreen),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: _primaryGreen, width: 2),
+                      ),
+                      prefixIcon: Icon(Icons.link, color: _primaryGreen),
+                    ),
+                    keyboardType: TextInputType.text,
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return "Please enter a database name";
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  // ADD: Email field
+                  TextFormField(
+                    controller: _usernameController,
+                    decoration: InputDecoration(
+                      labelText: 'Username',
+                      labelStyle: TextStyle(color: _primaryGreen),
+                      filled: true,
+                      fillColor: _primaryGreen.withOpacity(0.08),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: _primaryGreen),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: _primaryGreen),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: _primaryGreen, width: 2),
+                      ),
+                      prefixIcon: Icon(Icons.account_circle, color: _primaryGreen),
+                    ),
+                    keyboardType: TextInputType.text,
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Please enter an username';
+                      }
+
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
                   TextFormField(
                     controller: _pinController,
                     obscureText: _obscurePin,
                     decoration: InputDecoration(
-                      labelText: 'PIN',
+                      labelText: 'Password',
                       labelStyle: TextStyle(color: _primaryGreen),
                       filled: true,
                       fillColor: _primaryGreen.withOpacity(0.08),
@@ -110,40 +244,16 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       counterText: '',
                     ),
-                    keyboardType: TextInputType.number,
-                    maxLength: 4,
+                    keyboardType: TextInputType.text,
                     validator: (value) {
                       if (value == null || value.isEmpty) {
-                        return 'Veuillez entrer votre PIN';
+                        return 'Please enter a password';
                       }
-                      if (value.length != 4) {
-                        return 'Le PIN doit contenir 4 chiffres';
-                      }
+                      // if (value.length != 8) { //   return 'The access code must contain 8 characters'; // }
                       return null;
                     },
                   ),
                   const SizedBox(height: 16),
-                  if (authService.isBlocked())
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Text(
-                        'Compte verrouillé. Réessayez dans ${authService.getRemainingBlockTime().inSeconds} secondes',
-                        style: const TextStyle(
-                          color: Colors.red,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  if (authService.failedAttempts > 0 &&
-                      !authService.isBlocked())
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Text(
-                        'Tentatives échouées: ${authService.failedAttempts}/3',
-                        style: TextStyle(color: Colors.orange[700]),
-                      ),
-                    ),
                   SizedBox(
                     width: double.infinity,
                     height: 48,
@@ -156,17 +266,14 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                         elevation: 2,
                       ),
-                      onPressed:
-                          authService.isBlocked() || _isLoading
-                              ? null
-                              : _handleLogin,
+                      onPressed: _isLoading ? null : _handleLogin,
                       child:
                           _isLoading
                               ? const CircularProgressIndicator(
                                 color: Colors.white,
                               )
                               : const Text(
-                                'Connexion',
+                                'Login',
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
@@ -174,58 +281,7 @@ class _LoginPageState extends State<LoginPage> {
                               ),
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  TextButton(
-                    onPressed:
-                        authService.isBlocked()
-                            ? null
-                            : () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => const RegisterPage(),
-                                ),
-                              );
-                            },
-                    child: Text(
-                      'Créer un compte',
-                      style: TextStyle(
-                        color:
-                            authService.isBlocked()
-                                ? Colors.grey
-                                : _primaryGreen,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 15,
-                        decoration: TextDecoration.underline,
-                      ),
-                    ),
-                  ),
                   const SizedBox(height: 16),
-                  TextButton(
-                    onPressed:
-                        authService.isBlocked()
-                            ? null
-                            : () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => const ForgotPinPage(),
-                                ),
-                              );
-                            },
-                    child: Text(
-                      'Code PIN oublié ?',
-                      style: TextStyle(
-                        color:
-                            authService.isBlocked()
-                                ? Colors.grey
-                                : _primaryGreen,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 15,
-                        decoration: TextDecoration.underline,
-                      ),
-                    ),
-                  ),
                 ],
               ),
             ),
@@ -242,20 +298,38 @@ class _LoginPageState extends State<LoginPage> {
       setState(() {
         _isLoading = true;
       });
-
+      //update the api url before proceeding to login
+      await StorageService().saveCustomUrl(_apiUrlController.text.trim());
+      await StorageService().saveDatabaseName(_databaseNameController.text.trim());
       final authService = Provider.of<AuthService>(context, listen: false);
-      final result = await authService.login(_pinController.text);
+      final result = await authService.login(
+        _usernameController.text,
+        _pinController.text,
+      );
 
       setState(() {
         _isLoading = false;
       });
 
       if (result.success) {
-        Navigator.pushReplacementNamed(context, '/dashboard');
+        print('✅ Login successful, checking token persistence...');
+
+        // Immediate persistence test
+        final storedToken = await StorageService().getToken();
+        final storedUsername = await StorageService().getUserUsername();
+
+        print(
+          '🔐 Stored token after login: ${storedToken != null ? "OK" : "FAILED"}',
+        );
+        print(
+          '📧 Stored username after login: ${storedUsername != null ? "OK" : "FAILED"}',
+        );
+        // CHECKING LOCATION PERMISSIONS AFTER LOGIN
+        await _checkLocationPermissions();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(result.error ?? 'Échec de la connexion'),
+            content: Text(result.error ?? 'Login failed'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
@@ -267,9 +341,125 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  Future<void> _checkLocationPermissions() async {
+    final gpsService = GpsService();
+
+    // First check if mobile location is enabled
+    final isLocationEnabled = await Geolocator.isLocationServiceEnabled();
+
+    if (!isLocationEnabled) {
+      // Mobile location disabled
+      await _showEnableLocationDialog();
+      return;
+    }
+
+    // Then check the app permissions
+    final hasAppPermission = await gpsService.checkPermission();
+
+    if (!hasAppPermission) {
+      // App permission denied
+      await _showLocationPermissionDialog();
+    } else {
+      // Everything is OK, restart all the timer to use new params
+      try{
+        await AutoCollectService.refetchConfig();
+      }catch(e){
+        if(mounted){
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Failed to fetch config. Default config loaded"),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          );
+        }
+      }
+      final bgService = FlutterBackgroundService();
+      bgService.invoke("restart_tasks");
+      Navigator.pushReplacementNamed(context, '/dashboard');
+    }
+  }
+
+  Future<void> _showEnableLocationDialog() async {
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Location required'),
+          content: const Text(
+            'Your phone\'s location is disabled. '
+            'Please enable it in your device settings to use the application.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                // Redirect to the dashboard anyway
+                Navigator.pushReplacementNamed(context, '/dashboard');
+              },
+              child: const Text('Ignore'),
+            ),
+            TextButton(
+              onPressed: () async {
+                // Open the phone's location settings
+                await Geolocator.openLocationSettings();
+                Navigator.of(context).pop();
+                // Re-check after returning from settings
+                await _checkLocationPermissions();
+              },
+              child: const Text('Enable'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _showLocationPermissionDialog() async {
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Permission required'),
+          content: const Text(
+            'The application needs to access your location to function correctly.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.pushReplacementNamed(context, '/dashboard');
+              },
+              child: const Text('Ignore'),
+            ),
+            TextButton(
+              onPressed: () async {
+                // Request permission
+                await Geolocator.requestPermission();
+                Navigator.of(context).pop();
+                // Re-check after permission
+                await _checkLocationPermissions();
+              },
+              child: const Text('Authorize'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   void dispose() {
+    _usernameController.dispose();
     _pinController.dispose();
+    _databaseNameController.dispose();
+    _apiUrlController.dispose();
+    apiFocusNode.dispose();
     super.dispose();
   }
 }

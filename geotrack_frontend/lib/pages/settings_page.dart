@@ -1,221 +1,197 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:geotrack_frontend/models/config_model.dart';
 import 'package:geotrack_frontend/services/api_service.dart';
 import 'package:geotrack_frontend/services/storage_service.dart';
+import 'package:geotrack_frontend/services/power_optimizations.dart';
 import 'package:provider/provider.dart';
 import 'package:geotrack_frontend/services/auth_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../utils/constants.dart';
+
 class SettingsPage extends StatefulWidget {
-  const SettingsPage({Key? key}) : super(key: key);
+  const SettingsPage({super.key});
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  final TextEditingController _collectIntervalController =
-      TextEditingController();
+  final TextEditingController _collectIntervalController =TextEditingController();
   final TextEditingController _syncIntervalController = TextEditingController();
-  final TextEditingController _oldPinController = TextEditingController();
-  final TextEditingController _newPinController = TextEditingController();
-  final TextEditingController _confirmPinController = TextEditingController();
-  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _configSyncIntervalController = TextEditingController();
   final TextEditingController _apiUrlController = TextEditingController();
+  final TextEditingController _deviceCodeController = TextEditingController();
+  final TextEditingController _databaseNameController = TextEditingController();
 
   final _settingsFormKey = GlobalKey<FormState>();
-  final _pinFormKey = GlobalKey<FormState>();
   final _apiFormKey = GlobalKey<FormState>();
 
-  bool _obscureOldPin = true;
-  bool _obscureNewPin = true;
-  bool _obscureConfirmPin = true;
-  bool _isChangingPin = false;
-  bool _showPinSection = false;
   bool _showApiSection = false;
+  bool _configLoading = false;
+  bool _isBatteryOptimized = true;
+  bool _checkingBattery = false;
 
   @override
   void initState() {
     super.initState();
-    _loadSettings();
-    _loadUserEmail();
-    _loadApiUrl();
+    _initializeSettings();
+  }
+  
+  Future<void> _initializeSettings() async {
+    await StorageService().reloadStorage();
+    await _loadSettings();
+    await _loadApiSettings();
+    await _checkBatteryOptimization();
   }
 
-  Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _collectIntervalController.text =
-          (prefs.getInt('collect_interval') ?? 5).toString();
-      _syncIntervalController.text =
-          (prefs.getInt('sync_interval') ?? 10).toString();
-    });
-  }
-
-  Future<void> _loadApiUrl() async {
-    final apiUrl = await ApiService.getApiUrl();
-    setState(() {
-      _apiUrlController.text = apiUrl;
-    });
-  }
-
-  Future<void> _loadUserEmail() async {
-    final authService = Provider.of<AuthService>(context, listen: false);
-    if (authService.userEmail != null) {
-      _emailController.text = authService.userEmail!;
+  Future<void> _checkBatteryOptimization() async {
+    if (!Platform.isAndroid) return;
+    
+    setState(() => _checkingBattery = true);
+    try {
+      final isIgnoring = await PowerOptimizationsService.isIgnoringBatteryOptimizations();
+      setState(() => _isBatteryOptimized = !isIgnoring);
+    } catch (e) {
+      debugPrint('Error checking battery optimization: $e');
+    } finally {
+      setState(() => _checkingBattery = false);
     }
   }
 
-  Future<void> _saveSettings() async {
-    if (_settingsFormKey.currentState!.validate()) {
-      final collectInterval = int.parse(_collectIntervalController.text);
-      final syncInterval = int.parse(_syncIntervalController.text);
+  Future<void> _requestBatteryOptimizationExemption() async {
+    final success = await PowerOptimizationsService.requestIgnoreBatteryOptimizations();
+    if (success) {
+      // Give system time to process, then recheck
+      await Future.delayed(const Duration(seconds: 2));
+      await _checkBatteryOptimization();
+    }
+  }
 
+  Future<void> _loadSettings() async {
+    setState(() => _configLoading = true);
+    try {
+      final apiService = ApiService();
+      final config = await apiService.getConfig();
+      await StorageService().saveConfig(config);
+
+      setState(() {
+        _collectIntervalController.text = config.collectionInterval.toString();
+        _syncIntervalController.text = config.sendInterval.toString();
+        _configSyncIntervalController.text = config.configSyncInterval.toString();
+      });
+    } catch (e) {
+      // En cas d'erreur, charger depuis SharedPreferences
+     final conf = await StorageService().getConfig();
+      setState(() {
+        _collectIntervalController.text =conf.collectionInterval.toString();
+        _syncIntervalController.text =conf.sendInterval.toString();
+        _configSyncIntervalController.text =conf.configSyncInterval.toString();
+      });
+    } finally {
+      setState(() => _configLoading = false);
+    }
+  }
+
+  Future<void> _loadApiSettings() async {
+    final apiUrl = await ApiService.getApiUrl();
+    final dbName = await StorageService().getDatabaseName();
+    final String? deviceCode = await StorageService().getDeviceCode();
+    setState(() {
+      _apiUrlController.text = apiUrl;
+      _databaseNameController.text = dbName;
+     if (deviceCode !=null){
+       _deviceCodeController.text = deviceCode;
+     }
+    });
+  }
+
+  Future<void> _refetchSettings() async {
       try {
         final apiService = ApiService();
-
-        // Utiliser PUT au lieu de PATCH
-        final updatedConfig = await apiService.updateConfig({
-          'x_parameter': collectInterval,
-          'y_parameter': syncInterval,
-          // Ajouter device_id si requis par l'API
-          'device_id': 'mobile-device', // ou récupérer la valeur actuelle
-        });
-
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setInt('collect_interval', updatedConfig.xParameter);
-        await prefs.setInt('sync_interval', updatedConfig.yParameter);
-
+        final newConfig = await apiService.getConfig();
+        if( !newConfig.hasSameIntervals(await StorageService().getConfig())){
+          await StorageService().saveConfig(newConfig);
+          // Pass config directly to background service to avoid SharedPreferences isolation
+          FlutterBackgroundService().invoke("config_changed", {
+            'config': newConfig.toJson(),
+          });
+        }
         if (!mounted) return;
-        Navigator.pop(context, true);
-
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Paramètres sauvegardés avec succès'),
+            content: Text('Configurations successfully retrieved'),
             backgroundColor: Colors.green,
           ),
         );
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Erreur lors de la sauvegarde: $e'),
+            content: Text('Error during retrieval: $e'),
             backgroundColor: Colors.red,
           ),
         );
       }
-    }
-  }
 
-  Future<void> _changePin() async {
-    if (_pinFormKey.currentState!.validate()) {
-      final authService = Provider.of<AuthService>(context, listen: false);
-
-      // Vérification plus robuste de l'authentification
-      if (!authService.isAuthenticated || authService.token == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Session expirée. Veuillez vous reconnecter'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
-
-      // Vérifier que l'email correspond à celui du token
-      final tokenEmail = authService.getEmailFromToken();
-      if (tokenEmail != _emailController.text) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Email ne correspond pas au compte connecté'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
-
-      setState(() {
-        _isChangingPin = true;
-      });
-
-      final result = await authService.changePin(
-        _emailController.text,
-        _oldPinController.text,
-        _newPinController.text,
-      );
-
-      setState(() {
-        _isChangingPin = false;
-      });
-
-      if (result['success']) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result['message']),
-            backgroundColor: Colors.green,
-          ),
-        );
-
-        _oldPinController.clear();
-        _newPinController.clear();
-        _confirmPinController.clear();
-        setState(() {
-          _showPinSection = false;
-        });
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result['message']),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
   }
 
   Future<void> _logout() async {
     final authService = Provider.of<AuthService>(context, listen: false);
     await authService.logout();
     if (!mounted) return;
-    Navigator.pushReplacementNamed(context, '/login');
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      '/login',
+      (Route<dynamic> route) => false,
+    );
   }
 
-  Future<void> _changeApiUrl() async {
-    if (_apiFormKey.currentState!.validate()) {
-      await StorageService().saveCustomUrl(_apiUrlController.text);
-      setState(() {
-        _showApiSection=false;
-      });
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Url modifié avec succès'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    }
-  }
-  Future<void> _clearApiUrl() async {
-      await StorageService().clearCustomUrl();
-      setState(() {
-        _showApiSection=false;
-      });
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Url reinitialisé avec succès'),
-          backgroundColor: Colors.green,
-        ),
-      );
+  Future<void> showConfirmDialog()async{
+    await showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Confirm Logout',style: TextStyle(fontSize: 18),),
+          content: const Text(
+            "You will be logged out to be able to modify the API settings"
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.of(context).pop();
+                await _logout();
+                },
+              child: const Text('Confirm'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
+  Future<void> _saveDeviceCode()async{
+    await StorageService().saveDeviceId(_deviceCodeController.text.trim());
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Device code successfully modified'),
+        backgroundColor: Colors.green,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final authService = Provider.of<AuthService>(context);
-
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Paramètres'),
+        title: const Text('Settings'),
         backgroundColor: Colors.green,
         foregroundColor: Colors.white,
       ),
@@ -241,7 +217,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           Icon(Icons.timer, color: Colors.green),
                           SizedBox(width: 12),
                           Text(
-                            'Intervalles de Synchronisation',
+                            'Synchronization Intervals',
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
@@ -251,51 +227,50 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                       const SizedBox(height: 16),
                       TextFormField(
+                        enabled: false,
                         controller: _collectIntervalController,
                         decoration: const InputDecoration(
-                          labelText: 'Intervalle de collecte (minutes)',
+                          labelText: 'Collection interval (seconds)',
                           border: OutlineInputBorder(),
                           prefixIcon: Icon(Icons.gps_fixed),
                         ),
                         keyboardType: TextInputType.number,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Veuillez entrer un intervalle';
-                          }
-                          final val = int.tryParse(value);
-                          if (val == null || val < 1) {
-                            return 'Intervalle invalide';
-                          }
-                          return null;
-                        },
+
                       ),
                       const SizedBox(height: 16),
                       TextFormField(
                         controller: _syncIntervalController,
+                        enabled: false,
                         decoration: const InputDecoration(
-                          labelText: 'Intervalle de synchronisation (minutes)',
+                          labelText: 'Synchronization interval (seconds)',
                           border: OutlineInputBorder(),
                           prefixIcon: Icon(Icons.sync),
                         ),
                         keyboardType: TextInputType.number,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Veuillez entrer un intervalle';
-                          }
-                          final val = int.tryParse(value);
-                          if (val == null || val < 1) {
-                            return 'Intervalle invalide';
-                          }
-                          return null;
-                        },
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _configSyncIntervalController,
+                        enabled: false,
+                        decoration: const InputDecoration(
+                          labelText: 'Configuration synchronization (minutes)',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.sync),
+                        ),
+                        keyboardType: TextInputType.number,
                       ),
                       const SizedBox(height: 16),
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
-                          icon: const Icon(Icons.save),
-                          label: const Text('Sauvegarder les paramètres'),
-                          onPressed: _saveSettings,
+                          icon: const Icon(Icons.update),
+                          label:
+                              _configLoading
+                                  ? const CircularProgressIndicator(
+                                    color: Colors.white,
+                                  )
+                                  : const Text('Reload Configurations'),
+                          onPressed: _configLoading ? null : _refetchSettings,
                           style: ElevatedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             backgroundColor: Colors.green,
@@ -310,7 +285,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const SizedBox(height: 24),
 
-            // Section Modification du PIN
+            // Section Configuration API
             Card(
               elevation: 2,
               shape: RoundedRectangleBorder(
@@ -323,211 +298,10 @@ class _SettingsPageState extends State<SettingsPage> {
                   children: [
                     Row(
                       children: [
-                        const Icon(Icons.lock, color: Colors.green),
+                        const Icon(Icons.api, color: Colors.green),
                         const SizedBox(width: 12),
                         const Text(
-                          'Sécurité',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const Spacer(),
-                        IconButton(
-                          icon: Icon(
-                            _showPinSection
-                                ? Icons.expand_less
-                                : Icons.expand_more,
-                            color: Colors.green,
-                          ),
-                          onPressed: () {
-                            setState(() {
-                              _showPinSection = !_showPinSection;
-                            });
-                          },
-                        ),
-                      ],
-                    ),
-
-                    if (_showPinSection) ...[
-                      const SizedBox(height: 16),
-                      Form(
-                        key: _pinFormKey,
-                        child: Column(
-                          children: [
-                            TextFormField(
-                              controller: _emailController,
-                              decoration: const InputDecoration(
-                                labelText: 'Email',
-                                border: OutlineInputBorder(),
-                                prefixIcon: Icon(Icons.email),
-                              ),
-                              keyboardType: TextInputType.emailAddress,
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Veuillez entrer votre email';
-                                }
-                                if (!RegExp(
-                                  r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
-                                ).hasMatch(value)) {
-                                  return 'Email invalide';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 16),
-                            TextFormField(
-                              controller: _oldPinController,
-                              obscureText: _obscureOldPin,
-                              decoration: InputDecoration(
-                                labelText: 'Ancien PIN',
-                                border: const OutlineInputBorder(),
-                                prefixIcon: const Icon(Icons.lock_outline),
-                                suffixIcon: IconButton(
-                                  icon: Icon(
-                                    _obscureOldPin
-                                        ? Icons.visibility
-                                        : Icons.visibility_off,
-                                  ),
-                                  onPressed: () {
-                                    setState(() {
-                                      _obscureOldPin = !_obscureOldPin;
-                                    });
-                                  },
-                                ),
-                              ),
-                              keyboardType: TextInputType.number,
-                              maxLength: 4,
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Veuillez entrer votre ancien PIN';
-                                }
-                                if (value.length != 4) {
-                                  return 'Le PIN doit contenir 4 chiffres';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 16),
-                            TextFormField(
-                              controller: _newPinController,
-                              obscureText: _obscureNewPin,
-                              decoration: InputDecoration(
-                                labelText: 'Nouveau PIN',
-                                border: const OutlineInputBorder(),
-                                prefixIcon: const Icon(Icons.lock),
-                                suffixIcon: IconButton(
-                                  icon: Icon(
-                                    _obscureNewPin
-                                        ? Icons.visibility
-                                        : Icons.visibility_off,
-                                  ),
-                                  onPressed: () {
-                                    setState(() {
-                                      _obscureNewPin = !_obscureNewPin;
-                                    });
-                                  },
-                                ),
-                              ),
-                              keyboardType: TextInputType.number,
-                              maxLength: 4,
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Veuillez entrer un nouveau PIN';
-                                }
-                                if (value.length != 4) {
-                                  return 'Le PIN doit contenir 4 chiffres';
-                                }
-                                if (value == _oldPinController.text) {
-                                  return 'Le nouveau PIN doit être différent';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 16),
-                            TextFormField(
-                              controller: _confirmPinController,
-                              obscureText: _obscureConfirmPin,
-                              decoration: InputDecoration(
-                                labelText: 'Confirmer le nouveau PIN',
-                                border: const OutlineInputBorder(),
-                                prefixIcon: const Icon(Icons.lock),
-                                suffixIcon: IconButton(
-                                  icon: Icon(
-                                    _obscureConfirmPin
-                                        ? Icons.visibility
-                                        : Icons.visibility_off,
-                                  ),
-                                  onPressed: () {
-                                    setState(() {
-                                      _obscureConfirmPin = !_obscureConfirmPin;
-                                    });
-                                  },
-                                ),
-                              ),
-                              keyboardType: TextInputType.number,
-                              maxLength: 4,
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Veuillez confirmer votre PIN';
-                                }
-                                if (value != _newPinController.text) {
-                                  return 'Les PIN ne correspondent pas';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 16),
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton.icon(
-                                icon:
-                                    _isChangingPin
-                                        ? const CircularProgressIndicator(
-                                          color: Colors.white,
-                                          strokeWidth: 2,
-                                        )
-                                        : const Icon(Icons.lock_reset),
-                                label: Text(
-                                  _isChangingPin
-                                      ? 'Modification...'
-                                      : 'Modifier le PIN',
-                                ),
-                                onPressed: _isChangingPin ? null : _changePin,
-                                style: ElevatedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 16,
-                                  ),
-                                  backgroundColor: Colors.green,
-                                  foregroundColor: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Card(
-              elevation: 2,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.compare_arrows_rounded, color: Colors.green),
-                        const SizedBox(width: 12),
-                        const Text(
-                          'Configuration de L\'API',
+                          'API Configuration',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
@@ -549,7 +323,6 @@ class _SettingsPageState extends State<SettingsPage> {
                         ),
                       ],
                     ),
-
                     if (_showApiSection) ...[
                       const SizedBox(height: 16),
                       Form(
@@ -557,32 +330,26 @@ class _SettingsPageState extends State<SettingsPage> {
                         child: Column(
                           children: [
                             TextFormField(
-                              controller: _apiUrlController,
+                              controller: _deviceCodeController,
                               decoration: const InputDecoration(
-                                labelText: 'Url de l\'API',
+                                labelText: 'Your Device Code',
                                 border: OutlineInputBorder(),
-                                prefixIcon: Icon(Icons.link),
+                                prefixIcon: Icon(Icons.numbers),
+                                hintText: 'abcd123',
                               ),
                               keyboardType: TextInputType.text,
                               validator: (value) {
                                 if (value == null || value.trim().isEmpty) {
-                                  return 'Veuillez entrer l\'URL de l\'API';
-                                }
-                                // Vérifier si l'URL est valide
-                                final uri = Uri.tryParse(value.trim());
-                                if (uri == null || (!uri.hasScheme || !uri.hasAuthority)) {
-                                  return 'URL invalide (doit contenir http:// ou https://)';
+                                  return 'Please enter a device code';
                                 }
                                 return null;
                               },
                             ),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 16,),
                             SizedBox(
                               width: double.infinity,
-                              child: ElevatedButton.icon(
-                                icon: const Icon(Icons.update),
-                                label: Text('Modifier l\'url'),
-                                onPressed: _changeApiUrl,
+                              child:ElevatedButton(
+                                onPressed: _saveDeviceCode,
                                 style: ElevatedButton.styleFrom(
                                   padding: const EdgeInsets.symmetric(
                                     vertical: 16,
@@ -590,20 +357,65 @@ class _SettingsPageState extends State<SettingsPage> {
                                   backgroundColor: Colors.green,
                                   foregroundColor: Colors.white,
                                 ),
-                              ),
+                                child: const Text("Validate"),
+                              )
                             ),
+                            const SizedBox(height: 24),
+                            (Divider()),
+                            const SizedBox(height: 16),
+                            TextFormField(
+                              controller: _apiUrlController,
+                              enabled: false,
+                              decoration: const InputDecoration(
+                                labelText: 'API Base URL',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.link),
+                                hintText: 'https://mybaseurl.com',
+                              ),
+                              keyboardType: TextInputType.url,
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return 'Please enter the API URL';
+                                }
+                                final uri = Uri.tryParse(value.trim());
+                                if (uri == null ||
+                                    (!uri.hasScheme || !uri.hasAuthority)) {
+                                  return 'Invalid URL';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 16),
+                            TextFormField(
+                              controller: _databaseNameController,
+                              enabled: false,
+                              decoration: const InputDecoration(
+                                labelText: 'Database Name',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.storage),
+                                hintText: 'my_db_name',
+                              ),
+                              keyboardType: TextInputType.text,
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return 'Please enter a database name';
+                                }
+                                return null;
+                              },
+                            ),
+
                             const SizedBox(height: 16),
                             SizedBox(
                               width: double.infinity,
                               child: ElevatedButton.icon(
-                                icon: const Icon(Icons.clear),
-                                label: Text('Revenir a l \'url par défaut '),
-                                onPressed: _clearApiUrl,
+                                icon: const Icon(Icons.update),
+                                label: const Text('Modify Settings'),
+                                onPressed: showConfirmDialog,
                                 style: ElevatedButton.styleFrom(
                                   padding: const EdgeInsets.symmetric(
                                     vertical: 16,
                                   ),
-                                  backgroundColor: Colors.orange,
+                                  backgroundColor: Colors.green,
                                   foregroundColor: Colors.white,
                                 ),
                               ),
@@ -617,8 +429,86 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
             const SizedBox(height: 24),
-            const SizedBox(height: 24),
 
+            // Battery Optimization Section (Android only)
+            if (Platform.isAndroid)
+              Card(
+                elevation: 2,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            _isBatteryOptimized ? Icons.battery_alert : Icons.battery_full,
+                            color: _isBatteryOptimized ? Colors.orange : Colors.green,
+                          ),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Text(
+                              'Battery Optimization',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          if (_checkingBattery)
+                            const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        _isBatteryOptimized
+                            ? 'Battery optimization is enabled. This may stop GPS collection when the app is in the background.'
+                            : 'Battery optimization is disabled. GPS collection will work reliably in background.',
+                        style: TextStyle(
+                          color: _isBatteryOptimized ? Colors.orange[800] : Colors.green[800],
+                          fontSize: 13,
+                        ),
+                      ),
+                      if (_isBatteryOptimized) ...[
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            icon: const Icon(Icons.settings),
+                            label: const Text('Disable Battery Optimization'),
+                            onPressed: _requestBatteryOptimizationExemption,
+                            style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              backgroundColor: Colors.orange,
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ] else ...[
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            const Icon(Icons.check_circle, color: Colors.green, size: 18),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Optimal configuration for GPS tracking',
+                              style: TextStyle(color: Colors.green[700], fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            if (Platform.isAndroid) const SizedBox(height: 24),
 
             // Bouton de déconnexion
             SizedBox(
@@ -626,7 +516,7 @@ class _SettingsPageState extends State<SettingsPage> {
               child: OutlinedButton.icon(
                 icon: const Icon(Icons.logout, color: Colors.red),
                 label: const Text(
-                  'Déconnexion',
+                  'Logout',
                   style: TextStyle(color: Colors.red),
                 ),
                 onPressed: _logout,
@@ -646,10 +536,8 @@ class _SettingsPageState extends State<SettingsPage> {
   void dispose() {
     _collectIntervalController.dispose();
     _syncIntervalController.dispose();
-    _oldPinController.dispose();
-    _newPinController.dispose();
-    _confirmPinController.dispose();
-    _emailController.dispose();
+    _apiUrlController.dispose();
+    _deviceCodeController.dispose();
     super.dispose();
   }
 }
